@@ -22,16 +22,21 @@ export interface VisitorLog {
 }
 
 export const COLLEGES = [
+  "College of Accountancy",
+  "College of Agriculture",
   "College of Arts and Sciences",
   "College of Business Administration",
+  "College of Communication",
+  "College of Informatics and Computing Studies",
+  "College of Criminology",
   "College of Education",
   "College of Engineering and Architecture",
-  "College of Informatics and Computing Studies",
-  "College of Nursing",
+  "College of Medical Technology",
   "College of Music",
-  "College of Law",
-  "Graduate School",
-  "Administrative Office",
+  "College of Nursing",
+  "College of Physical Therapy",
+  "College of Respiratory Therapy",
+  "School of International Relations",
   "Others"
 ];
 
