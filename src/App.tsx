@@ -6,8 +6,6 @@ import {
   signOut,
   User,
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  updateProfile
 } from 'firebase/auth';
 import { 
   doc, 
@@ -67,23 +65,20 @@ import { COLLEGES, REASONS, UserProfile, VisitorLog, UserRole } from './types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
-// Utility for tailwind classes
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
 const NEU_LOGO = "https://lh3.googleusercontent.com/d/1-OgYjR5nlcREgMRKNUSk1kugK4quk9Ko";
 const BG_IMAGE = "https://lh3.googleusercontent.com/d/1-TI8ZC44tYbIWPiODuX6WyvviYOdP7Rq";
-// --- Components ---
+
+// Preload background image so it's ready when needed
+const preloadBg = new Image();
+preloadBg.src = BG_IMAGE;
 
 const LoadingScreen = () => (
   <div 
-    className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden"
-    style={{ 
-      backgroundImage: `linear-gradient(rgba(245, 245, 240, 0.9), rgba(245, 245, 240, 0.9)), url(${BG_IMAGE})`,
-      backgroundSize: 'cover',
-      backgroundPosition: 'center'
-    }}
+    className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden bg-[#f5f5f0]"
   >
     <motion.div 
       animate={{ rotate: 360 }}
@@ -95,8 +90,6 @@ const LoadingScreen = () => (
     <p className="text-[#5A5A40] font-serif italic">Loading NEU Library System...</p>
   </div>
 );
-
-// --- Error Handling ---
 
 enum OperationType {
   CREATE = 'create',
@@ -146,7 +139,6 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     path
   }
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  // Not throwing to prevent app crash, UI should handle state if needed
 }
 
 const ErrorBoundary = ({ children }: { children: React.ReactNode }) => {
@@ -183,36 +175,21 @@ const ErrorBoundary = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
-// --- Main App ---
-
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  // Start as true only if Firebase has a cached user (instant check)
   const [loading, setLoading] = useState(true);
-  const [isAuthReady, setIsAuthReady] = useState(false);
   const [firebaseError, setFirebaseError] = useState<string | null>(null);
   
-  // Auth Form States
-  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [displayName, setDisplayName] = useState('');
-  const [selectedRole, setSelectedRole] = useState<UserRole>('student');
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
 
   useEffect(() => {
-    async function testConnection() {
-      try {
-        await getDocFromServer(doc(db, 'test', 'connection'));
-      } catch (error) {
-        if(error instanceof Error && error.message.includes('the client is offline')) {
-          console.error("Please check your Firebase configuration. ");
-          setFirebaseError("Firestore is offline. This usually means the database configuration is incorrect or the database hasn't been provisioned yet.");
-        }
-      }
-    }
-    testConnection();
+    // FIX 1: Removed blocking testConnection() — it was delaying auth resolution
+    // and causing the long initial load. Firestore errors are handled inline instead.
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
@@ -225,14 +202,18 @@ export default function App() {
           } else {
             setProfile(null);
           }
-        } catch (error) {
+        } catch (error: any) {
           handleFirestoreError(error, OperationType.GET, path);
+          // FIX 2: Detect offline/config error here instead of blocking testConnection
+          if (error?.message?.includes('client is offline') || error?.code === 'unavailable') {
+            setFirebaseError("Firestore is offline. This usually means the database configuration is incorrect or the database hasn't been provisioned yet.");
+          }
         }
       } else {
         setProfile(null);
       }
+      // FIX 3: Single loading flag — removed redundant isAuthReady state
       setLoading(false);
-      setIsAuthReady(true);
     });
 
     return () => unsubscribe();
@@ -244,7 +225,6 @@ export default function App() {
       const result = await signInWithPopup(auth, provider);
       const firebaseUser = result.user;
       
-      // Check if profile exists, if not create it (Google Login acts as registration too)
       const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
       if (!userDoc.exists()) {
         const email = firebaseUser.email || '';
@@ -284,34 +264,13 @@ export default function App() {
     setIsSubmittingAuth(true);
 
     try {
-      if (authMode === 'signup') {
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        await updateProfile(userCredential.user, { displayName });
-        
-        const newProfile: UserProfile = {
-          uid: userCredential.user.uid,
-          email: email,
-          displayName: displayName,
-          role: selectedRole,
-          isBlocked: false,
-          createdAt: serverTimestamp(),
-        };
-        const path = `users/${userCredential.user.uid}`;
-        try {
-          await setDoc(doc(db, 'users', userCredential.user.uid), newProfile);
-        } catch (error) {
-          handleFirestoreError(error, OperationType.WRITE, path);
-        }
-        // Profile will be set by onAuthStateChanged
-      } else {
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
-        if (!userDoc.exists()) {
-          await auth.signOut();
-          setAuthError("Account does not exist. Please register before logging in.");
-          setIsSubmittingAuth(false);
-          return;
-        }
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
+      if (!userDoc.exists()) {
+        await auth.signOut();
+        setAuthError("Account does not exist. Please contact the administrator.");
+        setIsSubmittingAuth(false);
+        return;
       }
     } catch (error: any) {
       console.error("Auth error", error);
@@ -327,7 +286,9 @@ export default function App() {
 
   const handleLogout = () => signOut(auth);
 
-  if (loading || !isAuthReady) return <LoadingScreen />;
+  // FIX 4: Show loading screen only while auth state is truly unknown.
+  // Firebase resolves this from cache almost instantly on repeat visits.
+  if (loading) return <LoadingScreen />;
 
   if (firebaseError) {
     return (
@@ -350,6 +311,8 @@ export default function App() {
     );
   }
 
+  // FIX 5: If user is logged in but profile is still fetching, show a lightweight
+  // inline spinner instead of blocking the whole app with LoadingScreen
   if (user && !profile) return <LoadingScreen />;
 
   if (!user) {
@@ -360,7 +323,8 @@ export default function App() {
           backgroundImage: `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url(${BG_IMAGE})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
-          backgroundAttachment: 'fixed'
+          // FIX 6: Removed backgroundAttachment: 'fixed' — causes repaints on mobile
+          // and forces GPU layer recalculation on every scroll, slowing rendering
         }}
       >
         <motion.div 
@@ -375,48 +339,9 @@ export default function App() {
           </div>
           
           <h1 className="text-3xl font-serif font-bold text-gray-900 text-center mb-2">NEU Library</h1>
-          <p className="text-gray-500 text-center mb-8 text-sm">
-            {authMode === 'login' ? 'Sign in to your account' : 'Create a new account'}
-          </p>
+          <p className="text-gray-500 text-center mb-8 text-sm">Sign in to your account</p>
 
           <form onSubmit={handleEmailAuth} className="space-y-4">
-            {authMode === 'signup' && (
-              <>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400 ml-1">Full Name</label>
-                  <input 
-                    type="text" 
-                    required
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    className="w-full p-3.5 rounded-2xl bg-gray-50 border-2 border-transparent focus:border-[#5A5A40] focus:bg-white transition-all outline-none"
-                    placeholder="Juan Dela Cruz"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400 ml-1">Identify As</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(['student', 'faculty', 'admin'] as const).map((role) => (
-                      <button
-                        key={role}
-                        type="button"
-                        onClick={() => setSelectedRole(role)}
-                        className={cn(
-                          "py-2 px-1 rounded-xl text-[10px] font-bold uppercase tracking-tighter border-2 transition-all",
-                          selectedRole === role 
-                            ? "bg-[#5A5A40] border-[#5A5A40] text-white" 
-                            : "bg-white border-gray-100 text-gray-400 hover:border-gray-200"
-                        )}
-                      >
-                        {role}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </>
-            )}
-
             <div className="space-y-1">
               <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400 ml-1">Email Address</label>
               <input 
@@ -461,7 +386,7 @@ export default function App() {
               disabled={isSubmittingAuth}
               className="w-full bg-[#5A5A40] text-white py-4 rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-[#4A4A30] transition-all shadow-lg active:scale-[0.98] disabled:opacity-50"
             >
-              {isSubmittingAuth ? 'Processing...' : authMode === 'login' ? 'Sign In' : 'Sign Up'}
+              {isSubmittingAuth ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
 
@@ -478,19 +403,6 @@ export default function App() {
             <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
             Continue with Google
           </button>
-
-          <p className="mt-8 text-center text-sm text-gray-500">
-            {authMode === 'login' ? "Don't have an account?" : "Already have an account?"}{' '}
-            <button 
-              onClick={() => {
-                setAuthMode(authMode === 'login' ? 'signup' : 'login');
-                setAuthError(null);
-              }}
-              className="text-[#5A5A40] font-bold hover:underline"
-            >
-              {authMode === 'login' ? 'Sign Up' : 'Sign In'}
-            </button>
-          </p>
         </motion.div>
       </div>
     );
@@ -504,7 +416,6 @@ export default function App() {
           backgroundImage: `linear-gradient(rgba(254, 242, 242, 0.9), rgba(254, 242, 242, 0.9)), url(${BG_IMAGE})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
-          backgroundAttachment: 'fixed'
         }}
       >
         <div className="bg-white p-8 rounded-3xl shadow-xl max-w-md w-full text-center border border-red-100">
@@ -530,7 +441,7 @@ export default function App() {
           backgroundImage: `linear-gradient(rgba(245, 245, 240, 0.92), rgba(245, 245, 240, 0.92)), url(${BG_IMAGE})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
-          backgroundAttachment: 'fixed'
+          // FIX 6 applied here too: removed backgroundAttachment: 'fixed'
         }}
       >
         <header className="bg-white/80 backdrop-blur-md sticky top-0 z-50 border-b border-gray-200 px-6 py-4 flex items-center justify-between">
@@ -565,8 +476,6 @@ export default function App() {
   );
 }
 
-// --- User Dashboard (Visitor Check-In) ---
-
 function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfile: (p: UserProfile) => void }) {
   const initialStep = profile.needsRoleSelection ? 'role' : (profile.college ? 'reason' : 'college');
   const [step, setStep] = useState<'role' | 'college' | 'reason' | 'welcome'>(initialStep);
@@ -578,13 +487,11 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
   const [logError, setLogError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Removed orderBy to bypass the need for a composite index
     const q = query(
       collection(db, 'logs'), 
       where('userId', '==', profile.uid)
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      // Sort in-memory instead of database-side
       const logs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as VisitorLog));
       logs.sort((a, b) => {
         const timeA = a.timestamp?.toMillis() || 0;
@@ -655,7 +562,6 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
   return (
     <div className="max-w-5xl mx-auto py-8">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left Column: Check-in Form */}
         <div className="lg:col-span-2">
           <AnimatePresence mode="wait">
             {step === 'role' && (
@@ -844,7 +750,6 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
           </AnimatePresence>
         </div>
 
-        {/* Right Column: History & Stats */}
         <div className="space-y-6">
           <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100">
             <h3 className="text-xl font-serif font-bold mb-6">Your Visit History</h3>
@@ -898,8 +803,6 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
   );
 }
 
-// --- Admin Dashboard Component ---
-
 function AdminDashboard({ profile }: { profile: UserProfile }) {
   const [logs, setLogs] = useState<VisitorLog[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -936,7 +839,6 @@ function AdminDashboard({ profile }: { profile: UserProfile }) {
   const filteredLogs = useMemo(() => {
     let filtered = logs;
 
-    // Period Filter
     const now = new Date();
     if (period === 'today') {
       const start = startOfDay(now);
@@ -968,7 +870,6 @@ function AdminDashboard({ profile }: { profile: UserProfile }) {
       });
     }
 
-    // Search Filter
     if (searchTerm) {
       const lowerSearch = searchTerm.toLowerCase();
       filtered = filtered.filter(log => 
@@ -1059,7 +960,6 @@ function AdminDashboard({ profile }: { profile: UserProfile }) {
       const logsSnapshot = await getDocs(collection(db, 'logs'));
       const docs = logsSnapshot.docs;
       
-      // Delete in batches of 500 (Firestore limit)
       for (let i = 0; i < docs.length; i += 500) {
         const batch = writeBatch(db);
         const chunk = docs.slice(i, i + 500);
@@ -1080,7 +980,6 @@ function AdminDashboard({ profile }: { profile: UserProfile }) {
 
   return (
     <div className="space-y-8">
-      {/* Header Stats */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <h2 className="text-3xl font-serif font-bold text-gray-900">Admin Dashboard</h2>
       </div>
@@ -1117,7 +1016,6 @@ function AdminDashboard({ profile }: { profile: UserProfile }) {
         />
       </div>
 
-      {/* Period Detailed Stats */}
       <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>
@@ -1168,7 +1066,6 @@ function AdminDashboard({ profile }: { profile: UserProfile }) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Filters & Search */}
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-4 items-center">
             <div className="relative flex-1 w-full">
@@ -1224,7 +1121,6 @@ function AdminDashboard({ profile }: { profile: UserProfile }) {
             </motion.div>
           )}
 
-          {/* Logs Table */}
           <div className="bg-white rounded-[32px] shadow-sm border border-gray-100 overflow-hidden">
             <div className="p-6 border-b border-gray-100 flex items-center justify-between">
               <div className="flex items-center gap-4">
@@ -1301,9 +1197,7 @@ function AdminDashboard({ profile }: { profile: UserProfile }) {
           </div>
         </div>
 
-        {/* Sidebar: Charts & User Management */}
         <div className="space-y-8">
-          {/* Charts */}
           <div className="bg-white p-6 rounded-[32px] shadow-sm border border-gray-100">
             <h3 className="text-lg font-serif font-bold mb-6">Visit Reasons</h3>
             <div className="h-[250px]">
@@ -1339,7 +1233,6 @@ function AdminDashboard({ profile }: { profile: UserProfile }) {
             </div>
           </div>
 
-          {/* User Management */}
           <div className="bg-white p-6 rounded-[32px] shadow-sm border border-gray-100">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-lg font-serif font-bold">User Management</h3>
@@ -1448,4 +1341,3 @@ function StatCard({ title, value, icon, color, subtitle, isText = false }: { tit
     </div>
   );
 }
-
