@@ -1,0 +1,131 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId}
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required, email format)
+    //   - displayName: string (required)
+    //   - role: string (required, enum: admin, student, faculty)
+    //   - college: string (optional)
+    //   - isBlocked: boolean (optional)
+    //   - needsRoleSelection: boolean (optional)
+    //   - createdAt: timestamp (optional)
+    //
+    // Collection: logs
+    // Document ID: {logId}
+    // Fields:
+    //   - userId: string (required)
+    //   - userEmail: string (required, email format)
+    //   - userName: string (required)
+    //   - college: string (required)
+    //   - reason: string (required)
+    //   - timestamp: timestamp (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email == "tricia.labbao@neu.edu.ph" ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function hasOnlyAllowedFields(data, allowedFields) {
+      return data.keys().hasOnly(allowedFields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return data.uid is string &&
+             data.email is string && isValidEmail(data.email) &&
+             data.displayName is string && data.displayName.size() > 0 && data.displayName.size() < 100 &&
+             data.role in ['admin', 'student', 'faculty'] &&
+             (!('needsRoleSelection' in data) || data.needsRoleSelection is bool);
+    }
+
+    function isValidLog(data) {
+      return data.userId is string &&
+             data.userEmail is string && isValidEmail(data.userEmail) &&
+             data.userName is string && data.userName.size() > 0 &&
+             data.college is string &&
+             data.reason is string &&
+             data.timestamp is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      // Users can read their own profile. Admins can read all.
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      
+      // Users can create their own profile if they set their role to student or faculty (unless they are the default admin)
+      // Admins can create any profile.
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (
+        (request.auth.uid == userId && (request.resource.data.role in ['student', 'faculty'] || isAdmin())) || 
+        isAdmin()
+      );
+      
+      // Users can update their own profile (but not their role or blocked status unless they are admin or in role selection)
+      // Admins can update anything.
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (
+        (request.auth.uid == userId && 
+         (
+           (request.resource.data.role == resource.data.role && 
+            request.resource.data.isBlocked == resource.data.isBlocked) ||
+           (resource.data.needsRoleSelection == true)
+         )
+        ) || 
+        isAdmin()
+      );
+      
+      allow delete: if isAdmin();
+    }
+
+    match /test/connection {
+      allow read: if isAuthenticated();
+    }
+
+    match /logs/{logId} {
+      // Admins can read all logs. Users can read their own logs (filtered by userId).
+      allow read: if isAdmin() || (isAuthenticated() && request.query.limit <= 100 && resource.data.userId == request.auth.uid);
+      
+      // Users can create logs for themselves. Admins can create logs for anyone (e.g. via scanner).
+      allow create: if isAuthenticated() && isValidLog(request.resource.data) && (
+        (request.resource.data.userId == request.auth.uid) || 
+        isAdmin()
+      );
+      
+      // Logs should be immutable once created, except by admins if necessary.
+      allow update, delete: if isAdmin();
+    }
+  }
+}

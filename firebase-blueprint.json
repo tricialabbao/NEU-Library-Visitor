@@ -1,0 +1,43 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Stores detailed information about each library user.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The unique Firebase Auth UID." },
+        "email": { "type": "string", "format": "email", "description": "The user's institutional email." },
+        "displayName": { "type": "string", "description": "The user's full name." },
+        "role": { "type": "string", "enum": ["admin", "student", "faculty"], "description": "The user's role in the system." },
+        "college": { "type": "string", "description": "The college or office the user belongs to." },
+        "isBlocked": { "type": "boolean", "description": "Whether the user's access is restricted." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the profile was created." }
+      },
+      "required": ["uid", "email", "displayName", "role"]
+    },
+    "VisitorLog": {
+      "title": "Visitor Log",
+      "description": "Records each entry into the library.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The UID of the visitor." },
+        "userEmail": { "type": "string", "format": "email", "description": "The email of the visitor." },
+        "userName": { "type": "string", "description": "The name of the visitor." },
+        "college": { "type": "string", "description": "The college of the visitor at the time of entry." },
+        "reason": { "type": "string", "description": "The reason for visiting the library." },
+        "timestamp": { "type": "string", "format": "date-time", "description": "When the entry was recorded." }
+      },
+      "required": ["userId", "userEmail", "userName", "college", "reason", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Collection of user profiles."
+    },
+    "/logs/{logId}": {
+      "schema": "VisitorLog",
+      "description": "Collection of visitor check-in logs."
+    }
+  }
+}
