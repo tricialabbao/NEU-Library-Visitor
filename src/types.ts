@@ -41,6 +41,8 @@ export const COLLEGES = [
 ];
 
 export const REASONS = [
+  "Borrow/Return Books",
+  "Group Study",
   "Reading",
   "Research",
   "Use of Computer",
