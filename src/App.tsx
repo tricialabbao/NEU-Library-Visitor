@@ -273,6 +273,7 @@ export default function App() {
           uid: firebaseUser.uid,
           email: email,
           displayName: firebaseUser.displayName || '',
+          photoURL: firebaseUser.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(firebaseUser.displayName || 'User')}&background=random`,
           role: isOwner ? 'admin' : role,
           isBlocked: false,
           isApproved: role === 'student' || isOwner,
@@ -317,6 +318,7 @@ export default function App() {
           uid: firebaseUser.uid,
           email: email,
           displayName: displayName,
+          photoURL: `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random`,
           role: finalRole,
           isBlocked: false,
           isApproved: finalRole === 'student' || isOwner,
@@ -419,35 +421,26 @@ export default function App() {
                     placeholder="Juan Dela Cruz"
                   />
                 </div>
-              <div className="space-y-2">
-  <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400 ml-1">Select Role</label>
-  <div className="grid grid-cols-3 gap-2">
-    {(['student', 'faculty', 'admin'] as const).map((role) => (
-      <button
-        key={role}
-        type="button"
-        onClick={() => setRegistrationRole(role)}
-        className={cn(
-          "p-3 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all",
-          registrationRole === role
-            ? "border-[#5A5A40] bg-[#5A5A40]/5 text-[#5A5A40]"
-            : "border-gray-100 hover:border-gray-200 text-gray-500"
-        )}
-      >
-        <div className={cn(
-          "w-8 h-8 rounded-xl flex items-center justify-center transition-all",
-          registrationRole === role ? "bg-[#5A5A40] text-white" : "bg-gray-100 text-gray-400"
-        )}>
-          {role === 'student' && <Users className="w-4 h-4" />}
-          {role === 'faculty' && <ShieldCheck className="w-4 h-4" />}
-          {role === 'admin' && <BarChart3 className="w-4 h-4" />}
-        </div>
-        <span className="text-[11px] font-bold capitalize">{role}</span>
-      </button>
-    ))}
-  </div>
-  <p className="text-[9px] text-gray-400 ml-1 mt-1 italic">Faculty and Admin roles require approval</p>
-</div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400 ml-1">Select Role</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['student', 'faculty', 'admin'] as UserRole[]).map((role) => (
+                      <button
+                        key={role}
+                        type="button"
+                        onClick={() => setRegistrationRole(role)}
+                        className={`py-3 px-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all border-2 ${
+                          registrationRole === role 
+                            ? 'bg-[#5A5A40] border-[#5A5A40] text-white shadow-md' 
+                            : 'bg-gray-50 border-transparent text-gray-400 hover:bg-gray-100'
+                        }`}
+                      >
+                        {role}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[9px] text-gray-400 ml-1 mt-1 italic">Faculty and Admin roles require approval</p>
+                </div>
               </>
             )}
 
@@ -471,8 +464,9 @@ export default function App() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full p-3.5 rounded-2xl bg-gray-50 border-2 border-transparent focus:border-[#5A5A40] focus:bg-white transition-all outline-none"
-                placeholder="Password"
+                placeholder="Institutional Password"
               />
+              <p className="text-[9px] text-gray-400 ml-1 mt-1 italic">Use your institutional account password</p>
             </div>
 
             {authError && (
@@ -604,6 +598,15 @@ export default function App() {
             <div className="text-right hidden md:block">
               <p className="text-sm font-bold text-gray-900 leading-none">{profile?.displayName}</p>
               <p className="text-xs text-gray-500">{profile?.email}</p>
+            </div>
+            <div className="w-10 h-10 rounded-full border-2 border-[#5A5A40]/20 overflow-hidden bg-gray-100 flex-shrink-0">
+              {profile?.photoURL ? (
+                <img src={profile.photoURL} alt={profile.displayName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-[#5A5A40] font-bold">
+                  {profile?.displayName?.charAt(0)}
+                </div>
+              )}
             </div>
             <button 
               onClick={handleLogout}
@@ -1278,8 +1281,12 @@ function AdminDashboard({ profile }: { profile: UserProfile }) {
                 {filteredLogs.slice(0, 5).map(log => (
                   <div key={log.id} className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 font-bold">
-                        {log.userName?.charAt(0)}
+                      <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center text-gray-500 font-bold border border-gray-200">
+                        {users.find(u => u.uid === log.userId)?.photoURL ? (
+                          <img src={users.find(u => u.uid === log.userId)?.photoURL} alt={log.userName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        ) : (
+                          log.userName?.charAt(0)
+                        )}
                       </div>
                       <div>
                         <p className="text-sm font-bold text-gray-900">{log.userName}</p>
@@ -1452,8 +1459,12 @@ function AdminDashboard({ profile }: { profile: UserProfile }) {
                     <tr key={log.id} className="hover:bg-gray-50/50 transition-colors group">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 font-bold">
-                            {log.userName?.charAt(0)}
+                          <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center text-gray-500 font-bold border border-gray-200">
+                            {users.find(u => u.uid === log.userId)?.photoURL ? (
+                              <img src={users.find(u => u.uid === log.userId)?.photoURL} alt={log.userName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            ) : (
+                              log.userName?.charAt(0)
+                            )}
                           </div>
                           <div>
                             <p className="text-sm font-bold text-gray-900">{log.userName}</p>
@@ -1526,8 +1537,12 @@ function AdminDashboard({ profile }: { profile: UserProfile }) {
                     <tr key={u.uid} className="hover:bg-gray-50/50 transition-colors group">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 font-bold">
-                            {u.displayName?.charAt(0)}
+                          <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center text-gray-500 font-bold border border-gray-200">
+                            {u.photoURL ? (
+                              <img src={u.photoURL} alt={u.displayName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            ) : (
+                              u.displayName?.charAt(0)
+                            )}
                           </div>
                           <div>
                             <p className="text-sm font-bold text-gray-900">{u.displayName}</p>
@@ -1608,8 +1623,12 @@ function AdminDashboard({ profile }: { profile: UserProfile }) {
                   >
                     <div className="flex items-start justify-between mb-6">
                       <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-2xl shadow-sm">
-                          {u.displayName?.charAt(0)}
+                        <div className="w-12 h-12 rounded-2xl bg-white overflow-hidden flex items-center justify-center text-2xl shadow-sm border border-gray-100">
+                          {u.photoURL ? (
+                            <img src={u.photoURL} alt={u.displayName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          ) : (
+                            u.displayName?.charAt(0)
+                          )}
                         </div>
                         <div>
                           <h4 className="font-bold text-gray-900">{u.displayName}</h4>
