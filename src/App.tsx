@@ -249,7 +249,12 @@ export default function App() {
   }, []);
 
   const handleGoogleLogin = async () => {
+    setIsSubmittingAuth(true);
+    setAuthError(null);
     const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({
+      prompt: 'select_account'
+    });
     try {
       const result = await signInWithPopup(auth, provider);
       const firebaseUser = result.user;
@@ -278,9 +283,14 @@ export default function App() {
       console.error("Login failed", error);
       if (error.code === 'auth/invalid-credential' || error.code === 'auth/unauthorized-domain') {
         setAuthError("This domain is not authorized in your Firebase Console. Please add it to the 'Authorized Domains' list in Auth Settings.");
+      } else if (error.code === 'auth/popup-closed-by-user') {
+        // User closed the popup, don't show an error message
+        setAuthError(null);
       } else {
         setAuthError(error.message || "Google Login failed");
       }
+    } finally {
+      setIsSubmittingAuth(false);
     }
   };
 
