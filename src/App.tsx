@@ -258,10 +258,10 @@ export default function App() {
           uid: firebaseUser.uid,
           email: email,
           displayName: firebaseUser.displayName || '',
-          role: role,
+          role: isOwner ? 'admin' : role,
           isBlocked: false,
           isApproved: role === 'student' || isOwner,
-          needsRoleSelection: true,
+          needsRoleSelection: !isOwner,
           createdAt: serverTimestamp(),
         };
         await setDoc(doc(db, 'users', firebaseUser.uid), newProfile);
@@ -498,7 +498,14 @@ export default function App() {
           </div>
           <div className="flex items-center gap-4">
             <div className="text-right hidden md:block">
-              <p className="text-sm font-bold text-gray-900 leading-none">{profile?.displayName}</p>
+              <div className="flex items-center justify-end gap-2 mb-1">
+                {profile?.email === "tricia.labbao@neu.edu.ph" && (
+                  <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[9px] font-bold uppercase tracking-wider border border-amber-200">
+                    System Owner
+                  </span>
+                )}
+                <p className="text-sm font-bold text-gray-900 leading-none">{profile?.displayName}</p>
+              </div>
               <p className="text-xs text-gray-500">{profile?.email}</p>
             </div>
             <button 
@@ -563,14 +570,15 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
   const handleSaveRole = async () => {
     setIsSubmitting(true);
     const isOwner = profile.email === "tricia.labbao@neu.edu.ph";
-    const isApproved = selectedRole === 'student' || isOwner;
+    const finalRole = isOwner ? 'admin' : selectedRole;
+    const isApproved = finalRole === 'student' || isOwner;
     try {
       await updateDoc(doc(db, 'users', profile.uid), { 
-        role: selectedRole,
+        role: finalRole,
         isApproved: isApproved,
         needsRoleSelection: false 
       });
-      setProfile({ ...profile, role: selectedRole, isApproved: isApproved, needsRoleSelection: false });
+      setProfile({ ...profile, role: finalRole, isApproved: isApproved, needsRoleSelection: false });
       setStep(profile.college ? 'reason' : 'college');
     } catch (error) {
       console.error("Failed to save role", error);
