@@ -6,6 +6,8 @@ import {
   signOut,
   User,
   signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile
 } from 'firebase/auth';
 import { 
   doc, 
@@ -65,20 +67,23 @@ import { COLLEGES, REASONS, UserProfile, VisitorLog, UserRole } from './types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+// Utility for tailwind classes
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
 const NEU_LOGO = "https://lh3.googleusercontent.com/d/1-OgYjR5nlcREgMRKNUSk1kugK4quk9Ko";
 const BG_IMAGE = "https://lh3.googleusercontent.com/d/1-TI8ZC44tYbIWPiODuX6WyvviYOdP7Rq";
-
-// Preload background image so it's ready when needed
-const preloadBg = new Image();
-preloadBg.src = BG_IMAGE;
+// --- Components ---
 
 const LoadingScreen = () => (
   <div 
-    className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden bg-[#f5f5f0]"
+    className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden"
+    style={{ 
+      backgroundImage: `linear-gradient(rgba(245, 245, 240, 0.9), rgba(245, 245, 240, 0.9)), url(${BG_IMAGE})`,
+      backgroundSize: 'cover',
+      backgroundPosition: 'center'
+    }}
   >
     <motion.div 
       animate={{ rotate: 360 }}
@@ -90,6 +95,8 @@ const LoadingScreen = () => (
     <p className="text-[#5A5A40] font-serif italic">Loading NEU Library System...</p>
   </div>
 );
+
+// --- Error Handling ---
 
 enum OperationType {
   CREATE = 'create',
@@ -139,6 +146,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     path
   }
   console.error('Firestore Error: ', JSON.stringify(errInfo));
+  // Not throwing to prevent app crash, UI should handle state if needed
 }
 
 const ErrorBoundary = ({ children }: { children: React.ReactNode }) => {
@@ -175,21 +183,33 @@ const ErrorBoundary = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
+// --- Main App ---
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  // Start as true only if Firebase has a cached user (instant check)
   const [loading, setLoading] = useState(true);
+  const [isAuthReady, setIsAuthReady] = useState(false);
   const [firebaseError, setFirebaseError] = useState<string | null>(null);
   
+  // Auth Form States
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
 
   useEffect(() => {
-    // FIX 1: Removed blocking testConnection() — it was delaying auth resolution
-    // and causing the long initial load. Firestore errors are handled inline instead.
+    async function testConnection() {
+      try {
+        await getDocFromServer(doc(db, 'test', 'connection'));
+      } catch (error) {
+        if(error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration. ");
+          setFirebaseError("Firestore is offline. This usually means the database configuration is incorrect or the database hasn't been provisioned yet.");
+        }
+      }
+    }
+    testConnection();
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
@@ -202,18 +222,14 @@ export default function App() {
           } else {
             setProfile(null);
           }
-        } catch (error: any) {
+        } catch (error) {
           handleFirestoreError(error, OperationType.GET, path);
-          // FIX 2: Detect offline/config error here instead of blocking testConnection
-          if (error?.message?.includes('client is offline') || error?.code === 'unavailable') {
-            setFirebaseError("Firestore is offline. This usually means the database configuration is incorrect or the database hasn't been provisioned yet.");
-          }
         }
       } else {
         setProfile(null);
       }
-      // FIX 3: Single loading flag — removed redundant isAuthReady state
       setLoading(false);
+      setIsAuthReady(true);
     });
 
     return () => unsubscribe();
@@ -225,6 +241,7 @@ export default function App() {
       const result = await signInWithPopup(auth, provider);
       const firebaseUser = result.user;
       
+      // Check if profile exists, if not create it (Google Login acts as registration too)
       const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
       if (!userDoc.exists()) {
         const email = firebaseUser.email || '';
@@ -236,12 +253,14 @@ export default function App() {
           role = 'faculty';
         }
         
+        const isOwner = email === "tricia.labbao@neu.edu.ph";
         const newProfile: UserProfile = {
           uid: firebaseUser.uid,
           email: email,
           displayName: firebaseUser.displayName || '',
           role: role,
           isBlocked: false,
+          isApproved: role === 'student' || isOwner,
           needsRoleSelection: true,
           createdAt: serverTimestamp(),
         };
@@ -268,13 +287,13 @@ export default function App() {
       const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
       if (!userDoc.exists()) {
         await auth.signOut();
-        setAuthError("Account does not exist. Please contact the administrator.");
+        setAuthError("Account does not exist. Please use Google Login to register.");
         setIsSubmittingAuth(false);
         return;
       }
     } catch (error: any) {
       console.error("Auth error", error);
-      if (error.code === 'auth/invalid-credential') {
+      if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found') {
         setAuthError("Invalid email or password.");
       } else {
         setAuthError(error.message || "Authentication failed");
@@ -286,9 +305,7 @@ export default function App() {
 
   const handleLogout = () => signOut(auth);
 
-  // FIX 4: Show loading screen only while auth state is truly unknown.
-  // Firebase resolves this from cache almost instantly on repeat visits.
-  if (loading) return <LoadingScreen />;
+  if (loading || !isAuthReady) return <LoadingScreen />;
 
   if (firebaseError) {
     return (
@@ -311,8 +328,6 @@ export default function App() {
     );
   }
 
-  // FIX 5: If user is logged in but profile is still fetching, show a lightweight
-  // inline spinner instead of blocking the whole app with LoadingScreen
   if (user && !profile) return <LoadingScreen />;
 
   if (!user) {
@@ -323,8 +338,7 @@ export default function App() {
           backgroundImage: `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url(${BG_IMAGE})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
-          // FIX 6: Removed backgroundAttachment: 'fixed' — causes repaints on mobile
-          // and forces GPU layer recalculation on every scroll, slowing rendering
+          backgroundAttachment: 'fixed'
         }}
       >
         <motion.div 
@@ -339,9 +353,12 @@ export default function App() {
           </div>
           
           <h1 className="text-3xl font-serif font-bold text-gray-900 text-center mb-2">NEU Library</h1>
-          <p className="text-gray-500 text-center mb-8 text-sm">Sign in to your account</p>
+          <p className="text-gray-500 text-center mb-8 text-sm">
+            Sign in to your account
+          </p>
 
           <form onSubmit={handleEmailAuth} className="space-y-4">
+
             <div className="space-y-1">
               <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400 ml-1">Email Address</label>
               <input 
@@ -386,7 +403,7 @@ export default function App() {
               disabled={isSubmittingAuth}
               className="w-full bg-[#5A5A40] text-white py-4 rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-[#4A4A30] transition-all shadow-lg active:scale-[0.98] disabled:opacity-50"
             >
-              {isSubmittingAuth ? 'Signing in...' : 'Sign In'}
+              {isSubmittingAuth ? 'Processing...' : 'Sign In'}
             </button>
           </form>
 
@@ -416,12 +433,42 @@ export default function App() {
           backgroundImage: `linear-gradient(rgba(254, 242, 242, 0.9), rgba(254, 242, 242, 0.9)), url(${BG_IMAGE})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
+          backgroundAttachment: 'fixed'
         }}
       >
         <div className="bg-white p-8 rounded-3xl shadow-xl max-w-md w-full text-center border border-red-100">
           <Ban className="w-16 h-16 text-red-500 mx-auto mb-4" />
           <h2 className="text-2xl font-serif font-bold text-gray-900 mb-2">Access Denied</h2>
           <p className="text-gray-600 mb-6">Your account has been blocked from entering the library. Please contact the administrator for more information.</p>
+          <button 
+            onClick={handleLogout}
+            className="text-[#5A5A40] font-medium hover:underline flex items-center justify-center gap-2 mx-auto"
+          >
+            <LogOut className="w-4 h-4" /> Sign Out
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (profile && !profile.isApproved && profile.role !== 'student') {
+    return (
+      <div 
+        className="min-h-screen flex items-center justify-center p-4 relative"
+        style={{ 
+          backgroundImage: `linear-gradient(rgba(245, 245, 240, 0.9), rgba(245, 245, 240, 0.9)), url(${BG_IMAGE})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundAttachment: 'fixed'
+        }}
+      >
+        <div className="bg-white p-8 rounded-3xl shadow-xl max-w-md w-full text-center border border-gray-100">
+          <Clock className="w-16 h-16 text-[#5A5A40] mx-auto mb-4" />
+          <h2 className="text-2xl font-serif font-bold text-gray-900 mb-2">Approval Pending</h2>
+          <p className="text-gray-600 mb-6">
+            Your request to join as <strong>{profile.role}</strong> is currently pending approval from the system administrator. 
+            Please wait for verification.
+          </p>
           <button 
             onClick={handleLogout}
             className="text-[#5A5A40] font-medium hover:underline flex items-center justify-center gap-2 mx-auto"
@@ -441,7 +488,7 @@ export default function App() {
           backgroundImage: `linear-gradient(rgba(245, 245, 240, 0.92), rgba(245, 245, 240, 0.92)), url(${BG_IMAGE})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
-          // FIX 6 applied here too: removed backgroundAttachment: 'fixed'
+          backgroundAttachment: 'fixed'
         }}
       >
         <header className="bg-white/80 backdrop-blur-md sticky top-0 z-50 border-b border-gray-200 px-6 py-4 flex items-center justify-between">
@@ -476,6 +523,8 @@ export default function App() {
   );
 }
 
+// --- User Dashboard (Visitor Check-In) ---
+
 function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfile: (p: UserProfile) => void }) {
   const initialStep = profile.needsRoleSelection ? 'role' : (profile.college ? 'reason' : 'college');
   const [step, setStep] = useState<'role' | 'college' | 'reason' | 'welcome'>(initialStep);
@@ -487,11 +536,13 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
   const [logError, setLogError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Removed orderBy to bypass the need for a composite index
     const q = query(
       collection(db, 'logs'), 
       where('userId', '==', profile.uid)
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
+      // Sort in-memory instead of database-side
       const logs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as VisitorLog));
       logs.sort((a, b) => {
         const timeA = a.timestamp?.toMillis() || 0;
@@ -511,12 +562,15 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
 
   const handleSaveRole = async () => {
     setIsSubmitting(true);
+    const isOwner = profile.email === "tricia.labbao@neu.edu.ph";
+    const isApproved = selectedRole === 'student' || isOwner;
     try {
       await updateDoc(doc(db, 'users', profile.uid), { 
         role: selectedRole,
+        isApproved: isApproved,
         needsRoleSelection: false 
       });
-      setProfile({ ...profile, role: selectedRole, needsRoleSelection: false });
+      setProfile({ ...profile, role: selectedRole, isApproved: isApproved, needsRoleSelection: false });
       setStep(profile.college ? 'reason' : 'college');
     } catch (error) {
       console.error("Failed to save role", error);
@@ -562,6 +616,7 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
   return (
     <div className="max-w-5xl mx-auto py-8">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Left Column: Check-in Form */}
         <div className="lg:col-span-2">
           <AnimatePresence mode="wait">
             {step === 'role' && (
@@ -750,6 +805,7 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
           </AnimatePresence>
         </div>
 
+        {/* Right Column: History & Stats */}
         <div className="space-y-6">
           <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100">
             <h3 className="text-xl font-serif font-bold mb-6">Your Visit History</h3>
@@ -803,6 +859,8 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
   );
 }
 
+// --- Admin Dashboard Component ---
+
 function AdminDashboard({ profile }: { profile: UserProfile }) {
   const [logs, setLogs] = useState<VisitorLog[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -811,6 +869,29 @@ function AdminDashboard({ profile }: { profile: UserProfile }) {
   const [period, setPeriod] = useState<'today' | 'weekly' | 'monthly' | 'custom'>('today');
   const [customRange, setCustomRange] = useState({ start: format(subDays(new Date(), 7), 'yyyy-MM-dd'), end: format(new Date(), 'yyyy-MM-dd') });
   const [userSearchTerm, setUserSearchTerm] = useState('');
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'approvals'>('overview');
+
+  const handleApproveUser = async (userId: string) => {
+    try {
+      await updateDoc(doc(db, 'users', userId), { isApproved: true });
+    } catch (error) {
+      console.error("Failed to approve user", error);
+    }
+  };
+
+  const handleRejectUser = async (userId: string) => {
+    try {
+      // If rejected, we reset them to student role and ask them to select role again
+      // This allows them to continue as a student if they were just mistaken
+      await updateDoc(doc(db, 'users', userId), { 
+        isApproved: true, // Students are auto-approved
+        role: 'student',
+        needsRoleSelection: true 
+      });
+    } catch (error) {
+      console.error("Failed to reject user", error);
+    }
+  };
 
   useEffect(() => {
     const qLogs = query(collection(db, 'logs'), orderBy('timestamp', 'desc'));
@@ -839,6 +920,7 @@ function AdminDashboard({ profile }: { profile: UserProfile }) {
   const filteredLogs = useMemo(() => {
     let filtered = logs;
 
+    // Period Filter
     const now = new Date();
     if (period === 'today') {
       const start = startOfDay(now);
@@ -870,6 +952,7 @@ function AdminDashboard({ profile }: { profile: UserProfile }) {
       });
     }
 
+    // Search Filter
     if (searchTerm) {
       const lowerSearch = searchTerm.toLowerCase();
       filtered = filtered.filter(log => 
@@ -960,6 +1043,7 @@ function AdminDashboard({ profile }: { profile: UserProfile }) {
       const logsSnapshot = await getDocs(collection(db, 'logs'));
       const docs = logsSnapshot.docs;
       
+      // Delete in batches of 500 (Firestore limit)
       for (let i = 0; i < docs.length; i += 500) {
         const batch = writeBatch(db);
         const chunk = docs.slice(i, i + 500);
@@ -980,93 +1064,195 @@ function AdminDashboard({ profile }: { profile: UserProfile }) {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <h2 className="text-3xl font-serif font-bold text-gray-900">Admin Dashboard</h2>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard 
-          title="Total Visitors" 
-          value={periodStats.totalLogs} 
-          icon={<Users className="w-6 h-6" />} 
-          color="bg-blue-500" 
-          subtitle={`Total entries for ${period}`}
-        />
-        <StatCard 
-          title="Unique Users" 
-          value={periodStats.uniqueUsers} 
-          icon={<UserIcon className="w-6 h-6" />} 
-          color="bg-emerald-500" 
-          subtitle={`Unique visitors for ${period}`}
-        />
-        <StatCard 
-          title="Blocked Users" 
-          value={users.filter(u => u.isBlocked).length} 
-          icon={<Ban className="w-6 h-6" />} 
-          color="bg-red-500" 
-          subtitle="Access restricted"
-        />
-        <StatCard 
-          title="Peak College" 
-          value={periodStats.collegeData[0]?.name || "N/A"} 
-          icon={<Library className="w-6 h-6" />} 
-          color="bg-amber-500" 
-          subtitle="Most frequent visitors"
-          isText
-        />
-      </div>
-
-      <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-          <div>
-            <h3 className="text-2xl font-serif font-bold text-gray-900">Visitor Breakdown</h3>
-            <p className="text-gray-500">Detailed statistics for the selected period ({period})</p>
-          </div>
-          <div className="bg-[#5A5A40]/10 px-6 py-3 rounded-2xl flex items-center gap-4">
-            <div className="text-right">
-              <p className="text-xs font-bold text-[#5A5A40] uppercase tracking-widest">Unique Visitors</p>
-              <p className="text-2xl font-serif font-bold text-[#5A5A40]">{periodStats.uniqueUsers}</p>
-            </div>
-            <div className="w-px h-10 bg-[#5A5A40]/20" />
-            <div className="text-right">
-              <p className="text-xs font-bold text-[#5A5A40] uppercase tracking-widest">Total Entries</p>
-              <p className="text-2xl font-serif font-bold text-[#5A5A40]">{periodStats.totalLogs}</p>
-            </div>
-          </div>
+      {/* Header Stats */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div>
+          <h2 className="text-3xl font-serif font-bold text-gray-900">Admin Dashboard</h2>
+          <p className="text-gray-500">Manage library visitors, users, and approvals.</p>
         </div>
+        
+        <div className="flex bg-white p-1.5 rounded-2xl shadow-sm border border-gray-100 self-start">
+          {(['overview', 'logs', 'users', 'approvals'] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={cn(
+                "px-6 py-2.5 rounded-xl text-sm font-bold uppercase tracking-widest transition-all",
+                activeTab === tab 
+                  ? "bg-[#5A5A40] text-white shadow-md" 
+                  : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
+              )}
+            >
+              {tab}
+              {tab === 'approvals' && users.filter(u => !u.isApproved && u.role !== 'student').length > 0 && (
+                <span className="ml-2 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">
+                  {users.filter(u => !u.isApproved && u.role !== 'student').length}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {periodStats.collegeData.length > 0 ? (
-            periodStats.collegeData.map((item, index) => (
-              <motion.div 
-                key={item.name}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.05 }}
-                className="flex items-center justify-between p-5 rounded-2xl bg-gray-50 border border-gray-100 hover:border-[#5A5A40]/30 transition-all group"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center text-[#5A5A40] font-bold shadow-sm group-hover:bg-[#5A5A40] group-hover:text-white transition-colors">
-                    {index + 1}
+      {activeTab === 'overview' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Main Stats & Logs */}
+          <div className="lg:col-span-2 space-y-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              <StatCard 
+                title="Total Visitors" 
+                value={periodStats.totalLogs} 
+                icon={<Users className="w-6 h-6" />} 
+                color="bg-blue-500" 
+                subtitle={`Total entries for ${period}`}
+              />
+              <StatCard 
+                title="Unique Users" 
+                value={periodStats.uniqueUsers} 
+                icon={<UserIcon className="w-6 h-6" />} 
+                color="bg-emerald-500" 
+                subtitle={`Unique visitors for ${period}`}
+              />
+              <StatCard 
+                title="Blocked Users" 
+                value={users.filter(u => u.isBlocked).length} 
+                icon={<Ban className="w-6 h-6" />} 
+                color="bg-red-500" 
+                subtitle="Access restricted"
+              />
+              <StatCard 
+                title="Peak College" 
+                value={periodStats.collegeData[0]?.name || "N/A"} 
+                icon={<Library className="w-6 h-6" />} 
+                color="bg-amber-500" 
+                subtitle="Most frequent visitors"
+                isText
+              />
+            </div>
+
+            {/* Period Detailed Stats */}
+            <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+                <div>
+                  <h3 className="text-2xl font-serif font-bold text-gray-900">Visitor Breakdown</h3>
+                  <p className="text-gray-500">Detailed statistics for the selected period ({period})</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {periodStats.collegeData.length > 0 ? (
+                  periodStats.collegeData.slice(0, 6).map((item, index) => (
+                    <div 
+                      key={item.name}
+                      className="flex items-center justify-between p-4 rounded-2xl bg-gray-50 border border-gray-100"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-[#5A5A40] font-bold shadow-sm">
+                          {index + 1}
+                        </div>
+                        <span className="text-sm font-medium text-gray-700 truncate max-w-[150px]">{item.name}</span>
+                      </div>
+                      <span className="text-lg font-serif font-bold text-gray-900">{item.value}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="col-span-full py-8 text-center bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                    <p className="text-gray-400 italic">No visitors recorded yet.</p>
                   </div>
-                  <span className="text-sm font-medium text-gray-700">{item.name}</span>
-                </div>
-                <div className="text-right">
-                  <span className="text-lg font-serif font-bold text-gray-900">{item.value}</span>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Visits</p>
-                </div>
-              </motion.div>
-            ))
-          ) : (
-            <div className="col-span-full py-12 text-center bg-gray-50 rounded-2xl border border-dashed border-gray-200">
-              <p className="text-gray-400 italic">No visitors recorded yet today.</p>
+                )}
+              </div>
             </div>
-          )}
-        </div>
-      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-6">
+            {/* Recent Logs Preview */}
+            <div className="bg-white rounded-[32px] shadow-sm border border-gray-100 overflow-hidden">
+              <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+                <h3 className="text-xl font-serif font-bold">Recent Activity</h3>
+                <button onClick={() => setActiveTab('overview')} className="text-xs font-bold text-[#5A5A40] uppercase tracking-widest hover:underline">View All</button>
+              </div>
+              <div className="divide-y divide-gray-100">
+                {filteredLogs.slice(0, 5).map(log => (
+                  <div key={log.id} className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 font-bold">
+                        {log.userName?.charAt(0)}
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-gray-900">{log.userName}</p>
+                        <p className="text-xs text-gray-500">{log.college} • {log.reason}</p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase">
+                      {log.timestamp ? format(log.timestamp.toDate(), 'h:mm a') : '...'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Sidebar */}
+          <div className="space-y-8">
+            <div className="bg-white p-6 rounded-[32px] shadow-sm border border-gray-100">
+              <h3 className="text-lg font-serif font-bold mb-6">Visit Reasons</h3>
+              <div className="h-[200px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={stats.reasonData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={50}
+                      outerRadius={70}
+                      paddingAngle={5}
+                      dataKey="value"
+                    >
+                      {stats.reasonData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={['#5A5A40', '#8E8E6D', '#C2C2A3', '#E6E6D4', '#F5F5F0'][index % 5]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="mt-4 space-y-2">
+                {stats.reasonData.map((item, i) => (
+                  <div key={item.name} className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: ['#5A5A40', '#8E8E6D', '#C2C2A3', '#E6E6D4', '#F5F5F0'][i % 5] }} />
+                      <span className="text-gray-600">{item.name}</span>
+                    </div>
+                    <span className="font-bold">{item.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Quick Pending Actions */}
+            {users.filter(u => !u.isApproved && u.role !== 'student').length > 0 && (
+              <div className="bg-amber-50 p-6 rounded-[32px] border border-amber-100">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500 flex items-center justify-center text-white shadow-lg shadow-amber-200">
+                    <Clock className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-amber-900">Pending Approvals</h4>
+                    <p className="text-xs text-amber-700">{users.filter(u => !u.isApproved && u.role !== 'student').length} requests waiting</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setActiveTab('approvals')}
+                  className="w-full py-3 rounded-xl bg-amber-500 text-white text-xs font-bold uppercase tracking-widest hover:bg-amber-600 transition-all shadow-md shadow-amber-200"
+                >
+                  Review Requests
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'logs' && (
+        <div className="space-y-6">
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-4 items-center">
             <div className="relative flex-1 w-full">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -1196,87 +1382,183 @@ function AdminDashboard({ profile }: { profile: UserProfile }) {
             </div>
           </div>
         </div>
+      )}
 
-        <div className="space-y-8">
-          <div className="bg-white p-6 rounded-[32px] shadow-sm border border-gray-100">
-            <h3 className="text-lg font-serif font-bold mb-6">Visit Reasons</h3>
-            <div className="h-[250px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={stats.reasonData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={80}
-                    paddingAngle={5}
-                    dataKey="value"
-                  >
-                    {stats.reasonData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={['#5A5A40', '#8E8E6D', '#C2C2A3', '#E6E6D4', '#F5F5F0'][index % 5]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="mt-4 space-y-2">
-              {stats.reasonData.map((item, i) => (
-                <div key={item.name} className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: ['#5A5A40', '#8E8E6D', '#C2C2A3', '#E6E6D4', '#F5F5F0'][i % 5] }} />
-                    <span className="text-gray-600">{item.name}</span>
-                  </div>
-                  <span className="font-bold">{item.value}</span>
-                </div>
-              ))}
+      {activeTab === 'users' && (
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-4 items-center">
+            <div className="relative flex-1 w-full">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input 
+                type="text" 
+                placeholder="Search users by name or email..."
+                value={userSearchTerm}
+                onChange={(e) => setUserSearchTerm(e.target.value)}
+                className="w-full pl-12 pr-4 py-3 rounded-2xl bg-gray-50 border-transparent focus:bg-white focus:border-[#5A5A40] focus:ring-0 transition-all"
+              />
             </div>
           </div>
 
-          <div className="bg-white p-6 rounded-[32px] shadow-sm border border-gray-100">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-serif font-bold">User Management</h3>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                <input 
-                  type="text"
-                  placeholder="Search users..."
-                  value={userSearchTerm}
-                  onChange={(e) => setUserSearchTerm(e.target.value)}
-                  className="pl-8 pr-3 py-1.5 rounded-lg bg-gray-50 border-transparent focus:bg-white focus:border-[#5A5A40] text-xs transition-all outline-none"
-                />
-              </div>
-            </div>
-            <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
-              {users
-                .filter(u => u.role !== 'admin')
-                .filter(u => 
-                  u.displayName.toLowerCase().includes(userSearchTerm.toLowerCase()) || 
-                  u.email.toLowerCase().includes(userSearchTerm.toLowerCase())
-                )
-                .map(u => (
-                <div key={u.uid} className="flex items-center justify-between p-4 rounded-2xl bg-gray-50 border border-gray-100">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-gray-900 truncate">{u.displayName}</p>
-                    <p className="text-xs text-gray-500 truncate">{u.email}</p>
-                    {u.isBlocked && <span className="text-[10px] font-bold text-red-500 uppercase tracking-widest">Blocked</span>}
-                  </div>
-                  <button
-                    onClick={() => handleBlockUser(u.uid, u.isBlocked)}
-                    className={cn(
-                      "p-2 rounded-xl transition-all",
-                      u.isBlocked ? "bg-red-100 text-red-600 hover:bg-red-200" : "bg-gray-200 text-gray-600 hover:bg-gray-300"
-                    )}
-                    title={u.isBlocked ? "Unblock User" : "Block User"}
-                  >
-                    <Ban className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
+          <div className="bg-white rounded-[32px] shadow-sm border border-gray-100 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="bg-gray-50/50">
+                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">User</th>
+                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Role</th>
+                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Status</th>
+                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Joined</th>
+                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {users
+                    .filter(u => 
+                      u.displayName.toLowerCase().includes(userSearchTerm.toLowerCase()) || 
+                      u.email.toLowerCase().includes(userSearchTerm.toLowerCase())
+                    )
+                    .map(u => (
+                    <tr key={u.uid} className="hover:bg-gray-50/50 transition-colors group">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 font-bold">
+                            {u.displayName?.charAt(0)}
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-gray-900">{u.displayName}</p>
+                            <p className="text-xs text-gray-500">{u.email}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={cn(
+                          "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest",
+                          u.role === 'admin' ? "bg-purple-100 text-purple-600" :
+                          u.role === 'faculty' ? "bg-blue-100 text-blue-600" :
+                          "bg-gray-100 text-gray-600"
+                        )}>
+                          {u.role}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          {!u.isApproved && u.role !== 'student' ? (
+                            <span className="flex items-center gap-1.5 text-amber-600 text-xs font-bold">
+                              <Clock className="w-3.5 h-3.5" /> Pending
+                            </span>
+                          ) : u.isBlocked ? (
+                            <span className="flex items-center gap-1.5 text-red-600 text-xs font-bold">
+                              <Ban className="w-3.5 h-3.5" /> Blocked
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1.5 text-green-600 text-xs font-bold">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Active
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="text-xs text-gray-400">
+                          {u.createdAt ? format(u.createdAt.toDate(), 'MMM d, yyyy') : '...'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        {u.email !== "tricia.labbao@neu.edu.ph" && (
+                          <button
+                            onClick={() => handleBlockUser(u.uid, u.isBlocked)}
+                            className={cn(
+                              "p-2 rounded-xl transition-all",
+                              u.isBlocked ? "bg-red-100 text-red-600 hover:bg-red-200" : "bg-gray-100 text-gray-400 hover:bg-gray-200"
+                            )}
+                            title={u.isBlocked ? "Unblock User" : "Block User"}
+                          >
+                            <Ban className="w-4 h-4" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {activeTab === 'approvals' && (
+        <div className="space-y-6">
+          <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100">
+            <h3 className="text-2xl font-serif font-bold text-gray-900 mb-2">Pending Approvals</h3>
+            <p className="text-gray-500 mb-8">Review and approve requests for Faculty and Admin access.</p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {users.filter(u => !u.isApproved && u.role !== 'student').length > 0 ? (
+                users.filter(u => !u.isApproved && u.role !== 'student').map((u, index) => (
+                  <motion.div 
+                    key={u.uid}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.1 }}
+                    className="bg-gray-50 border border-gray-100 rounded-3xl p-6 flex flex-col"
+                  >
+                    <div className="flex items-start justify-between mb-6">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-2xl shadow-sm">
+                          {u.displayName?.charAt(0)}
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-gray-900">{u.displayName}</h4>
+                          <p className="text-sm text-gray-500">{u.email}</p>
+                        </div>
+                      </div>
+                      <span className={cn(
+                        "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest",
+                        u.role === 'admin' ? "bg-purple-100 text-purple-600" : "bg-blue-100 text-blue-600"
+                      )}>
+                        {u.role}
+                      </span>
+                    </div>
+
+                    <div className="space-y-3 mb-8">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-500">College</span>
+                        <span className="font-medium text-gray-900">{u.college || 'Not specified'}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-500">Requested On</span>
+                        <span className="font-medium text-gray-900">{u.createdAt ? format(u.createdAt.toDate(), 'MMM d, yyyy') : '...'}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3 mt-auto">
+                      <button 
+                        onClick={() => handleRejectUser(u.uid)}
+                        className="flex-1 py-3 rounded-2xl bg-white border border-gray-200 text-gray-600 text-xs font-bold uppercase tracking-widest hover:bg-red-50 hover:text-red-600 hover:border-red-100 transition-all"
+                      >
+                        Reject
+                      </button>
+                      <button 
+                        onClick={() => handleApproveUser(u.uid)}
+                        className="flex-1 py-3 rounded-2xl bg-[#5A5A40] text-white text-xs font-bold uppercase tracking-widest hover:bg-[#4A4A30] transition-all shadow-lg shadow-[#5A5A40]/20"
+                      >
+                        Approve Access
+                      </button>
+                    </div>
+                  </motion.div>
+                ))
+              ) : (
+                <div className="col-span-full py-20 text-center bg-gray-50 rounded-[32px] border border-dashed border-gray-200">
+                  <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center text-green-500 mx-auto mb-6 shadow-sm">
+                    <CheckCircle2 className="w-10 h-10" />
+                  </div>
+                  <h4 className="text-xl font-serif font-bold text-gray-900 mb-2">All Caught Up!</h4>
+                  <p className="text-gray-500">There are no pending approval requests at this time.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <AnimatePresence>
         {showClearConfirm && (
@@ -1341,3 +1623,4 @@ function StatCard({ title, value, icon, color, subtitle, isText = false }: { tit
     </div>
   );
 }
+
