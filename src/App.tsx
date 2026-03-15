@@ -456,9 +456,8 @@ export default function App() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full p-3.5 rounded-2xl bg-gray-50 border-2 border-transparent focus:border-[#5A5A40] focus:bg-white transition-all outline-none"
-                placeholder="Institutional Password"
+                placeholder="Password"
               />
-              <p className="text-[9px] text-gray-400 ml-1 mt-1 italic">Use your institutional account password</p>
             </div>
 
             {authError && (
