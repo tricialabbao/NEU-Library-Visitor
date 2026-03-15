@@ -197,9 +197,25 @@ export default function App() {
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [registrationRole, setRegistrationRole] = useState<UserRole>('student');
+  const [selectedPhotoURL, setSelectedPhotoURL] = useState<string | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 500000) { // 500KB limit for base64 in Firestore
+        setAuthError("Image is too large. Please select an image under 500KB.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setSelectedPhotoURL(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   useEffect(() => {
     async function testConnection() {
@@ -222,6 +238,12 @@ export default function App() {
           const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
           if (userDoc.exists()) {
             const data = userDoc.data() as UserProfile;
+            
+            // Sync photoURL if missing in profile but present in auth (e.g. Google)
+            if (!data.photoURL && firebaseUser.photoURL) {
+              await updateDoc(doc(db, 'users', firebaseUser.uid), { photoURL: firebaseUser.photoURL });
+              data.photoURL = firebaseUser.photoURL;
+            }
             
             // Auto-fix owner profile if needed
             if (firebaseUser.email === "tricia.labbao@neu.edu.ph" && (data.role !== 'admin' || !data.isApproved)) {
@@ -318,7 +340,7 @@ export default function App() {
           uid: firebaseUser.uid,
           email: email,
           displayName: displayName,
-          photoURL: `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random`,
+          photoURL: selectedPhotoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random`,
           role: finalRole,
           isBlocked: false,
           isApproved: finalRole === 'student' || isOwner,
@@ -410,6 +432,28 @@ export default function App() {
           <form onSubmit={handleEmailAuth} className="space-y-4">
             {isRegistering && (
               <>
+                <div className="flex flex-col items-center mb-6">
+                  <div className="relative group">
+                    <div className="w-24 h-24 rounded-full border-4 border-gray-50 overflow-hidden bg-gray-100 flex items-center justify-center">
+                      {selectedPhotoURL ? (
+                        <img src={selectedPhotoURL} alt="Profile Preview" className="w-full h-full object-cover" />
+                      ) : (
+                        <UserIcon className="w-10 h-10 text-gray-300" />
+                      )}
+                    </div>
+                    <label className="absolute bottom-0 right-0 bg-[#5A5A40] text-white p-2 rounded-full cursor-pointer shadow-lg hover:bg-[#4A4A30] transition-all">
+                      <Camera className="w-4 h-4" />
+                      <input 
+                        type="file" 
+                        className="hidden" 
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                      />
+                    </label>
+                  </div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-2">Upload Profile Picture</p>
+                </div>
+
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400 ml-1">Full Name</label>
                   <input 
