@@ -4,10 +4,7 @@ import {
   signInWithPopup, 
   GoogleAuthProvider, 
   signOut,
-  User,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  updateProfile
+  User
 } from 'firebase/auth';
 import { 
   doc, 
@@ -193,29 +190,8 @@ export default function App() {
   const [firebaseError, setFirebaseError] = useState<string | null>(null);
   
   // Auth Form States
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [displayName, setDisplayName] = useState('');
-  const [registrationRole, setRegistrationRole] = useState<UserRole>('student');
-  const [selectedPhotoURL, setSelectedPhotoURL] = useState<string | null>(null);
-  const [isRegistering, setIsRegistering] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 500000) { // 500KB limit for base64 in Firestore
-        setAuthError("Image is too large. Please select an image under 500KB.");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setSelectedPhotoURL(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
 
   useEffect(() => {
     async function testConnection() {
@@ -239,8 +215,8 @@ export default function App() {
           if (userDoc.exists()) {
             const data = userDoc.data() as UserProfile;
             
-            // Sync photoURL if missing in profile but present in auth (e.g. Google)
-            if (!data.photoURL && firebaseUser.photoURL) {
+            // Sync photoURL from Google if it's different
+            if (firebaseUser.photoURL && data.photoURL !== firebaseUser.photoURL) {
               await updateDoc(doc(db, 'users', firebaseUser.uid), { photoURL: firebaseUser.photoURL });
               data.photoURL = firebaseUser.photoURL;
             }
@@ -282,23 +258,16 @@ export default function App() {
       const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
       if (!userDoc.exists()) {
         const email = firebaseUser.email || '';
-        let role: UserRole = 'student';
-        
-        if (email.includes('.admin.') || email.startsWith('admin.')) {
-          role = 'admin';
-        } else if (email.includes('.faculty.') || email.startsWith('faculty.')) {
-          role = 'faculty';
-        }
-        
         const isOwner = email === "tricia.labbao@neu.edu.ph";
+        
         const newProfile: UserProfile = {
           uid: firebaseUser.uid,
           email: email,
           displayName: firebaseUser.displayName || '',
           photoURL: firebaseUser.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(firebaseUser.displayName || 'User')}&background=random`,
-          role: isOwner ? 'admin' : role,
+          role: isOwner ? 'admin' : 'student',
           isBlocked: false,
-          isApproved: role === 'student' || isOwner,
+          isApproved: isOwner, // Students will be approved after role selection if they stay students
           needsRoleSelection: !isOwner,
           createdAt: serverTimestamp(),
         };
@@ -312,66 +281,6 @@ export default function App() {
       } else {
         setAuthError(error.message || "Google Login failed");
       }
-    }
-  };
-
-  const handleEmailAuth = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthError(null);
-    setIsSubmittingAuth(true);
-
-    try {
-      if (isRegistering) {
-        if (!displayName) {
-          setAuthError("Please enter your full name.");
-          setIsSubmittingAuth(false);
-          return;
-        }
-        
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        const firebaseUser = userCredential.user;
-        
-        await updateProfile(firebaseUser, { displayName });
-        
-        const isOwner = email === "tricia.labbao@neu.edu.ph";
-        const finalRole = isOwner ? 'admin' : registrationRole;
-        
-        const newProfile: UserProfile = {
-          uid: firebaseUser.uid,
-          email: email,
-          displayName: displayName,
-          photoURL: selectedPhotoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random`,
-          role: finalRole,
-          isBlocked: false,
-          isApproved: finalRole === 'student' || isOwner,
-          needsRoleSelection: false,
-          createdAt: serverTimestamp(),
-        };
-        await setDoc(doc(db, 'users', firebaseUser.uid), newProfile);
-        setProfile(newProfile);
-      } else {
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
-        if (!userDoc.exists()) {
-          await auth.signOut();
-          setAuthError("Account profile not found. Please use Google Login to register.");
-          setIsSubmittingAuth(false);
-          return;
-        }
-      }
-    } catch (error: any) {
-      console.error("Auth error", error);
-      if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-        setAuthError(isRegistering ? "Registration failed. This email might already be in use." : "Invalid email or password. If you haven't set a manual password yet, please use 'Continue with Google' to sign in with your institutional account.");
-      } else if (error.code === 'auth/email-already-in-use') {
-        setAuthError("This email is already registered. Please sign in instead.");
-      } else if (error.code === 'auth/weak-password') {
-        setAuthError("Password should be at least 6 characters.");
-      } else {
-        setAuthError(error.message || "Authentication failed");
-      }
-    } finally {
-      setIsSubmittingAuth(false);
     }
   };
 
@@ -426,142 +335,27 @@ export default function App() {
           
           <h1 className="text-3xl font-serif font-bold text-gray-900 text-center mb-2">NEU Library</h1>
           <p className="text-gray-500 text-center mb-8 text-sm">
-            {isRegistering ? 'Create your account' : 'Sign in to your account'}
+            Sign in with your institutional account to continue
           </p>
 
-          <form onSubmit={handleEmailAuth} className="space-y-4">
-            {isRegistering && (
-              <>
-                <div className="flex flex-col items-center mb-6">
-                  <div className="relative group">
-                    <div className="w-24 h-24 rounded-full border-4 border-gray-50 overflow-hidden bg-gray-100 flex items-center justify-center">
-                      {selectedPhotoURL ? (
-                        <img src={selectedPhotoURL} alt="Profile Preview" className="w-full h-full object-cover" />
-                      ) : (
-                        <UserIcon className="w-10 h-10 text-gray-300" />
-                      )}
-                    </div>
-                    <label className="absolute bottom-0 right-0 bg-[#5A5A40] text-white p-2 rounded-full cursor-pointer shadow-lg hover:bg-[#4A4A30] transition-all">
-                      <Camera className="w-4 h-4" />
-                      <input 
-                        type="file" 
-                        className="hidden" 
-                        accept="image/*"
-                        onChange={handleImageUpload}
-                      />
-                    </label>
-                  </div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-2">Upload Profile Picture</p>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400 ml-1">Full Name</label>
-                  <input 
-                    type="text" 
-                    required
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    className="w-full p-3.5 rounded-2xl bg-gray-50 border-2 border-transparent focus:border-[#5A5A40] focus:bg-white transition-all outline-none"
-                    placeholder="Juan Dela Cruz"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400 ml-1">Select Role</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(['student', 'faculty', 'admin'] as UserRole[]).map((role) => (
-                      <button
-                        key={role}
-                        type="button"
-                        onClick={() => setRegistrationRole(role)}
-                        className={`py-3 px-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all border-2 ${
-                          registrationRole === role 
-                            ? 'bg-[#5A5A40] border-[#5A5A40] text-white shadow-md' 
-                            : 'bg-gray-50 border-transparent text-gray-400 hover:bg-gray-100'
-                        }`}
-                      >
-                        {role}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-[9px] text-gray-400 ml-1 mt-1 italic">Faculty and Admin roles require approval</p>
-                </div>
-              </>
-            )}
-
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400 ml-1">Email Address</label>
-              <input 
-                type="email" 
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full p-3.5 rounded-2xl bg-gray-50 border-2 border-transparent focus:border-[#5A5A40] focus:bg-white transition-all outline-none"
-                placeholder="email@neu.edu.ph"
-              />
+          {authError && (
+            <div className="text-xs text-red-500 bg-red-50 p-3 rounded-xl border border-red-100 mb-4">
+              <p>{authError}</p>
             </div>
-
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400 ml-1">Password</label>
-              <input 
-                type="password" 
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full p-3.5 rounded-2xl bg-gray-50 border-2 border-transparent focus:border-[#5A5A40] focus:bg-white transition-all outline-none"
-                placeholder="Institutional Password"
-              />
-              <p className="text-[9px] text-gray-400 ml-1 mt-1 italic">Use your institutional account password</p>
-            </div>
-
-            {authError && (
-              <div className="text-xs text-red-500 bg-red-50 p-3 rounded-xl border border-red-100 space-y-2">
-                <p>{authError}</p>
-                {(authError.includes("domain is not authorized") || authError.includes("authorized in your Firebase Console")) && (
-                  <div className="pt-2 border-t border-red-100">
-                    <p className="font-bold text-[10px] uppercase mb-1">Domain to authorize:</p>
-                    <code className="block bg-white p-2 rounded border border-red-200 break-all select-all">
-                      {window.location.hostname}
-                    </code>
-                    <p className="mt-1 text-[9px] opacity-70 italic">Copy this and add it to Authentication &gt; Settings &gt; Authorized Domains in Firebase Console.</p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <button 
-              type="submit"
-              disabled={isSubmittingAuth}
-              className="w-full bg-[#5A5A40] text-white py-4 rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-[#4A4A30] transition-all shadow-lg active:scale-[0.98] disabled:opacity-50"
-            >
-              {isSubmittingAuth ? 'Processing...' : (isRegistering ? 'Create Account' : 'Sign In')}
-            </button>
-          </form>
-
-          <div className="mt-4 text-center">
-            <button 
-              onClick={() => {
-                setIsRegistering(!isRegistering);
-                setAuthError(null);
-              }}
-              className="text-xs text-[#5A5A40] font-bold uppercase tracking-widest hover:underline"
-            >
-              {isRegistering ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}
-            </button>
-          </div>
-
-          <div className="mt-6 flex items-center gap-4">
-            <div className="flex-1 h-px bg-gray-100" />
-            <span className="text-[10px] font-bold text-gray-300 uppercase">OR</span>
-            <div className="flex-1 h-px bg-gray-100" />
-          </div>
+          )}
 
           <button 
             onClick={handleGoogleLogin}
-            className="w-full mt-6 bg-white border-2 border-gray-100 text-gray-600 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-3 hover:bg-gray-50 transition-all"
+            disabled={isSubmittingAuth}
+            className="w-full bg-white border-2 border-gray-100 text-gray-600 py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-3 hover:bg-gray-50 transition-all shadow-sm active:scale-[0.98] disabled:opacity-50"
           >
-            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-6 h-6" alt="Google" />
             Continue with Google
           </button>
+
+          <p className="mt-6 text-center text-[10px] text-gray-400 uppercase tracking-widest font-bold">
+            Institutional Access Only
+          </p>
         </motion.div>
       </div>
     );
@@ -765,25 +559,26 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
     }
   };
 
-  return (
-    <div className="max-w-5xl mx-auto py-8">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left Column: Check-in Form */}
-        <div className="lg:col-span-2">
+  if (step === 'role' || step === 'college') {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center p-4">
+        <div className="max-w-2xl w-full">
           <AnimatePresence mode="wait">
             {step === 'role' && (
               <motion.div 
                 key="role"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className="bg-white p-10 rounded-[32px] shadow-xl border border-white"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 1.05 }}
+                className="bg-white p-8 md:p-12 rounded-[40px] shadow-2xl border border-white"
               >
-                <div className="w-20 h-20 bg-[#5A5A40]/10 rounded-2xl flex items-center justify-center mb-6 p-4">
-                  <img src={NEU_LOGO} alt="NEU Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                <div className="flex justify-center mb-8">
+                  <div className="w-24 h-24 bg-[#5A5A40]/10 rounded-3xl flex items-center justify-center p-5 shadow-inner">
+                    <img src={NEU_LOGO} alt="NEU Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                  </div>
                 </div>
-                <h2 className="text-3xl font-serif font-bold mb-2">Identify Your Sector</h2>
-                <p className="text-gray-500 mb-8">Please select which sector you belong to in the NEU community.</p>
+                <h2 className="text-4xl font-serif font-bold text-center mb-3">Welcome to NEU Library</h2>
+                <p className="text-gray-500 text-center mb-10 text-lg">To personalize your experience, please identify your sector.</p>
                 
                 <div className="grid grid-cols-1 gap-4">
                   {(['student', 'faculty', 'admin'] as const).map((role) => (
@@ -791,24 +586,24 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
                       key={role}
                       onClick={() => setSelectedRole(role)}
                       className={cn(
-                        "p-6 rounded-2xl border-2 text-left transition-all flex items-center justify-between group",
+                        "p-6 rounded-3xl border-2 text-left transition-all flex items-center justify-between group relative overflow-hidden",
                         selectedRole === role 
-                          ? "border-[#5A5A40] bg-[#5A5A40]/5 text-[#5A5A40]" 
-                          : "border-gray-100 hover:border-gray-200 text-gray-600"
+                          ? "border-[#5A5A40] bg-[#5A5A40]/5 text-[#5A5A40] shadow-md" 
+                          : "border-gray-100 hover:border-gray-200 text-gray-600 hover:bg-gray-50"
                       )}
                     >
-                      <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-5 relative z-10">
                         <div className={cn(
-                          "w-12 h-12 rounded-xl flex items-center justify-center transition-all",
-                          selectedRole === role ? "bg-[#5A5A40] text-white" : "bg-gray-100 text-gray-400"
+                          "w-14 h-14 rounded-2xl flex items-center justify-center transition-all shadow-sm",
+                          selectedRole === role ? "bg-[#5A5A40] text-white" : "bg-gray-100 text-gray-400 group-hover:bg-gray-200"
                         )}>
-                          {role === 'student' && <Users className="w-6 h-6" />}
-                          {role === 'faculty' && <ShieldCheck className="w-6 h-6" />}
-                          {role === 'admin' && <BarChart3 className="w-6 h-6" />}
+                          {role === 'student' && <Users className="w-7 h-7" />}
+                          {role === 'faculty' && <ShieldCheck className="w-7 h-7" />}
+                          {role === 'admin' && <BarChart3 className="w-7 h-7" />}
                         </div>
                         <div>
-                          <span className="font-bold text-lg capitalize">{role}</span>
-                          <p className="text-xs opacity-70">
+                          <span className="font-bold text-xl capitalize block">{role}</span>
+                          <p className="text-sm opacity-70">
                             {role === 'student' && 'Access library resources and study areas'}
                             {role === 'faculty' && 'Manage research materials and academic tools'}
                             {role === 'admin' && 'System administration and monitoring'}
@@ -816,10 +611,10 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
                         </div>
                       </div>
                       <div className={cn(
-                        "w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all",
+                        "w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all relative z-10",
                         selectedRole === role ? "border-[#5A5A40] bg-[#5A5A40]" : "border-gray-200"
                       )}>
-                        {selectedRole === role && <CheckCircle2 className="w-4 h-4 text-white" />}
+                        {selectedRole === role && <CheckCircle2 className="w-5 h-5 text-white" />}
                       </div>
                     </button>
                   ))}
@@ -828,9 +623,9 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
                 <button 
                   onClick={handleSaveRole}
                   disabled={isSubmitting}
-                  className="w-full mt-10 bg-[#5A5A40] text-white py-4 rounded-full font-medium text-lg hover:bg-[#4A4A30] transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg"
+                  className="w-full mt-10 bg-[#5A5A40] text-white py-5 rounded-2xl font-bold text-xl hover:bg-[#4A4A30] transition-all disabled:opacity-50 flex items-center justify-center gap-3 shadow-xl active:scale-[0.98]"
                 >
-                  {isSubmitting ? "Saving..." : "Continue"} <ChevronRight className="w-5 h-5" />
+                  {isSubmitting ? "Saving..." : "Confirm Selection"} <ChevronRight className="w-6 h-6" />
                 </button>
               </motion.div>
             )}
@@ -838,40 +633,61 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
             {step === 'college' && (
               <motion.div 
                 key="college"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className="bg-white p-10 rounded-[32px] shadow-xl border border-white"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 1.05 }}
+                className="bg-white p-8 md:p-12 rounded-[40px] shadow-2xl border border-white"
               >
-                <div className="w-20 h-20 bg-[#5A5A40]/10 rounded-2xl flex items-center justify-center mb-6 p-4">
-                  <img src={NEU_LOGO} alt="NEU Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                <div className="flex justify-center mb-8">
+                  <div className="w-24 h-24 bg-[#5A5A40]/10 rounded-3xl flex items-center justify-center p-5 shadow-inner">
+                    <img src={NEU_LOGO} alt="NEU Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                  </div>
                 </div>
-                <h2 className="text-3xl font-serif font-bold mb-2">First Time Visit?</h2>
-                <p className="text-gray-500 mb-8">Please specify the college or office you belong to. You only need to do this once.</p>
+                <h2 className="text-4xl font-serif font-bold text-center mb-3">One More Detail</h2>
+                <p className="text-gray-500 text-center mb-10 text-lg">Please specify the college or office you belong to.</p>
                 
-                <div className="space-y-3">
-                  <label className="text-xs font-bold uppercase tracking-widest text-gray-400">Select College/Office</label>
-                  <select 
-                    value={selectedCollege}
-                    onChange={(e) => setSelectedCollege(e.target.value)}
-                    className="w-full p-4 rounded-2xl border-2 border-gray-100 focus:border-[#5A5A40] focus:outline-none transition-all text-lg appearance-none bg-no-repeat bg-[right_1rem_center]"
-                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%235A5A40' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundSize: '1.5em' }}
-                  >
-                    <option value="">Choose your College...</option>
-                    {COLLEGES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                <div className="space-y-4">
+                  <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-1">Select College/Office</label>
+                  <div className="grid grid-cols-1 gap-2 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
+                    {COLLEGES.map((college) => (
+                      <button
+                        key={college}
+                        onClick={() => setSelectedCollege(college)}
+                        className={cn(
+                          "w-full p-4 rounded-2xl border-2 text-left transition-all flex items-center justify-between group",
+                          selectedCollege === college 
+                            ? "border-[#5A5A40] bg-[#5A5A40]/5 text-[#5A5A40] font-bold" 
+                            : "border-gray-50 hover:border-gray-200 text-gray-600 hover:bg-gray-50"
+                        )}
+                      >
+                        <span>{college}</span>
+                        {selectedCollege === college && <CheckCircle2 className="w-5 h-5" />}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <button 
                   onClick={handleSaveCollege}
-                  disabled={!selectedCollege || isSubmitting}
-                  className="w-full mt-10 bg-[#5A5A40] text-white py-4 rounded-full font-medium text-lg hover:bg-[#4A4A30] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  disabled={isSubmitting || !selectedCollege}
+                  className="w-full mt-10 bg-[#5A5A40] text-white py-5 rounded-2xl font-bold text-xl hover:bg-[#4A4A30] transition-all disabled:opacity-50 flex items-center justify-center gap-3 shadow-xl active:scale-[0.98]"
                 >
-                  {isSubmitting ? "Saving..." : "Continue"} <ChevronRight className="w-5 h-5" />
+                  {isSubmitting ? "Saving..." : "Complete Setup"} <ChevronRight className="w-6 h-6" />
                 </button>
               </motion.div>
             )}
+          </AnimatePresence>
+        </div>
+      </div>
+    );
+  }
 
+  return (
+    <div className="max-w-5xl mx-auto py-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Left Column: Check-in Form */}
+        <div className="lg:col-span-2">
+          <AnimatePresence mode="wait">
             {step === 'reason' && (
               <motion.div 
                 key="reason"
