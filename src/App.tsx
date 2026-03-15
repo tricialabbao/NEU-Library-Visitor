@@ -218,7 +218,19 @@ export default function App() {
         try {
           const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
           if (userDoc.exists()) {
-            setProfile({ uid: firebaseUser.uid, ...userDoc.data() } as UserProfile);
+            const data = userDoc.data() as UserProfile;
+            
+            // Auto-fix owner profile if needed
+            if (firebaseUser.email === "tricia.labbao@neu.edu.ph" && (data.role !== 'admin' || !data.isApproved)) {
+              await updateDoc(doc(db, 'users', firebaseUser.uid), {
+                role: 'admin',
+                isApproved: true,
+                needsRoleSelection: false
+              });
+              setProfile({ ...data, uid: firebaseUser.uid, role: 'admin', isApproved: true, needsRoleSelection: false });
+            } else {
+              setProfile({ uid: firebaseUser.uid, ...data } as UserProfile);
+            }
           } else {
             setProfile(null);
           }
@@ -877,7 +889,7 @@ function AdminDashboard({ profile }: { profile: UserProfile }) {
   const [period, setPeriod] = useState<'today' | 'weekly' | 'monthly' | 'custom'>('today');
   const [customRange, setCustomRange] = useState({ start: format(subDays(new Date(), 7), 'yyyy-MM-dd'), end: format(new Date(), 'yyyy-MM-dd') });
   const [userSearchTerm, setUserSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'approvals'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'approvals'>('approvals');
 
   const handleApproveUser = async (userId: string) => {
     try {
