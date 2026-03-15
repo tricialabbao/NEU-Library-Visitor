@@ -4,9 +4,9 @@ export interface UserProfile {
   uid: string;
   email: string;
   displayName: string;
+  photoURL?: string;
   role: UserRole;
   college?: string;
-  photoURL?: string;  
   isBlocked: boolean;
   isApproved?: boolean;
   needsRoleSelection?: boolean;
