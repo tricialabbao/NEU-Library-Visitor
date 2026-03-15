@@ -7,6 +7,7 @@ export interface UserProfile {
   role: UserRole;
   college?: string;
   isBlocked: boolean;
+  isApproved?: boolean;
   needsRoleSelection?: boolean;
   createdAt: any;
 }
@@ -41,8 +42,6 @@ export const COLLEGES = [
 ];
 
 export const REASONS = [
-  "Borrow/Return Books",
-  "Group Study",
   "Reading",
   "Research",
   "Use of Computer",
