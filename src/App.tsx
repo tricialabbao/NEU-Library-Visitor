@@ -419,20 +419,35 @@ export default function App() {
                     placeholder="Juan Dela Cruz"
                   />
                 </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400 ml-1">Select Role</label>
-                  <select 
-                    value={registrationRole}
-                    onChange={(e) => setRegistrationRole(e.target.value as UserRole)}
-                    className="w-full p-3.5 rounded-2xl bg-gray-50 border-2 border-transparent focus:border-[#5A5A40] focus:bg-white transition-all outline-none appearance-none bg-no-repeat bg-[right_1rem_center]"
-                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%235A5A40' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundSize: '1.2em' }}
-                  >
-                    <option value="student">Student</option>
-                    <option value="faculty">Faculty</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                  <p className="text-[9px] text-gray-400 ml-1 mt-1 italic">Faculty and Admin roles require approval</p>
-                </div>
+              <div className="space-y-2">
+  <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400 ml-1">Select Role</label>
+  <div className="grid grid-cols-3 gap-2">
+    {(['student', 'faculty', 'admin'] as const).map((role) => (
+      <button
+        key={role}
+        type="button"
+        onClick={() => setRegistrationRole(role)}
+        className={cn(
+          "p-3 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all",
+          registrationRole === role
+            ? "border-[#5A5A40] bg-[#5A5A40]/5 text-[#5A5A40]"
+            : "border-gray-100 hover:border-gray-200 text-gray-500"
+        )}
+      >
+        <div className={cn(
+          "w-8 h-8 rounded-xl flex items-center justify-center transition-all",
+          registrationRole === role ? "bg-[#5A5A40] text-white" : "bg-gray-100 text-gray-400"
+        )}>
+          {role === 'student' && <Users className="w-4 h-4" />}
+          {role === 'faculty' && <ShieldCheck className="w-4 h-4" />}
+          {role === 'admin' && <BarChart3 className="w-4 h-4" />}
+        </div>
+        <span className="text-[11px] font-bold capitalize">{role}</span>
+      </button>
+    ))}
+  </div>
+  <p className="text-[9px] text-gray-400 ml-1 mt-1 italic">Faculty and Admin roles require approval</p>
+</div>
               </>
             )}
 
