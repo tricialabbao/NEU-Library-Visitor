@@ -513,7 +513,6 @@ export default function App() {
               <div className="flex items-center justify-end gap-2 mb-1">
                 {profile?.email === "tricia.labbao@neu.edu.ph" && (
                   <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[9px] font-bold uppercase tracking-wider border border-amber-200">
-                    System Owner
                   </span>
                 )}
                 <p className="text-sm font-bold text-gray-900 leading-none">{profile?.displayName}</p>
