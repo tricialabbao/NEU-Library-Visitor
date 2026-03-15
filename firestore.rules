@@ -42,11 +42,16 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
+    function isSystemOwner() {
+      return isAuthenticated() && request.auth.token.email == "tricia.labbao@neu.edu.ph";
+    }
+
     function isAdmin() {
       return isAuthenticated() && (
-        request.auth.token.email == "tricia.labbao@neu.edu.ph" ||
+        isSystemOwner() ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isApproved == true)
       );
     }
 
@@ -67,6 +72,7 @@ service cloud.firestore {
              data.email is string && isValidEmail(data.email) &&
              data.displayName is string && data.displayName.size() > 0 && data.displayName.size() < 100 &&
              data.role in ['admin', 'student', 'faculty'] &&
+             (!('isApproved' in data) || data.isApproved is bool) &&
              (!('needsRoleSelection' in data) || data.needsRoleSelection is bool);
     }
 
@@ -94,13 +100,14 @@ service cloud.firestore {
         isAdmin()
       );
       
-      // Users can update their own profile (but not their role or blocked status unless they are admin or in role selection)
+      // Users can update their own profile (but not their role, blocked status, or approval status unless they are admin or in role selection)
       // Admins can update anything.
       allow update: if isAuthenticated() && isValidUser(request.resource.data) && (
         (request.auth.uid == userId && 
          (
            (request.resource.data.role == resource.data.role && 
-            request.resource.data.isBlocked == resource.data.isBlocked) ||
+            request.resource.data.isBlocked == resource.data.isBlocked &&
+            request.resource.data.isApproved == resource.data.isApproved) ||
            (resource.data.needsRoleSelection == true)
          )
         ) || 
