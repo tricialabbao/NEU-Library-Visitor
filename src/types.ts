@@ -6,6 +6,7 @@ export interface UserProfile {
   displayName: string;
   role: UserRole;
   college?: string;
+  photoURL?: string;  
   isBlocked: boolean;
   isApproved?: boolean;
   needsRoleSelection?: boolean;
