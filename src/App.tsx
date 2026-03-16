@@ -222,7 +222,8 @@ export default function App() {
             }
             
             // Auto-fix owner profile if needed
-            if (firebaseUser.email === "tricia.labbao@neu.edu.ph" && (data.role !== 'admin' || !data.isApproved)) {
+            const ADMIN_EMAILS = ["jcesperanza@neu.edu.ph", "tricia.labbao@neu.edu.ph"];
+            if (ADMIN_EMAILS.includes(firebaseUser.email || "") && (data.role !== 'admin' || !data.isApproved)) {
               await updateDoc(doc(db, 'users', firebaseUser.uid), {
                 role: 'admin',
                 isApproved: true,
@@ -263,7 +264,8 @@ export default function App() {
       const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
       if (!userDoc.exists()) {
         const email = firebaseUser.email || '';
-        const isOwner = email === "tricia.labbao@neu.edu.ph";
+        const ADMIN_EMAILS = ["jcesperanza@neu.edu.ph", "tricia.labbao@neu.edu.ph"];
+        const isOwner = ADMIN_EMAILS.includes(email);
         
         const newProfile: UserProfile = {
           uid: firebaseUser.uid,
@@ -295,6 +297,17 @@ export default function App() {
   };
 
   const handleLogout = () => signOut(auth);
+
+  const handleUpdateRole = async (userId: string, newRole: UserRole) => {
+    try {
+      await updateDoc(doc(db, 'users', userId), { role: newRole });
+      if (userId === profile?.uid) {
+        setProfile(prev => prev ? { ...prev, role: newRole } : null);
+      }
+    } catch (error) {
+      console.error("Failed to update role", error);
+    }
+  };
 
   if (loading || !isAuthReady) return <LoadingScreen />;
 
@@ -443,6 +456,17 @@ export default function App() {
             <span className="font-serif font-bold text-xl tracking-tight hidden sm:block">NEU Library</span>
           </div>
           <div className="flex items-center gap-4">
+            {profile?.email && ["jcesperanza@neu.edu.ph", "tricia.labbao@neu.edu.ph"].includes(profile.email) && (
+              <select
+                value={profile.role}
+                onChange={(e) => handleUpdateRole(profile.uid, e.target.value as UserRole)}
+                className="text-[10px] font-bold uppercase tracking-widest bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 focus:ring-1 focus:ring-[#5A5A40] outline-none hidden sm:block"
+              >
+                <option value="student">Student</option>
+                <option value="faculty">Faculty</option>
+                <option value="admin">Admin</option>
+              </select>
+            )}
             <div className="text-right hidden md:block">
               <p className="text-sm font-bold text-gray-900 leading-none">{profile?.displayName}</p>
               <p className="text-xs text-gray-500">{profile?.email}</p>
@@ -468,7 +492,7 @@ export default function App() {
 
         <main className="max-w-7xl mx-auto p-6">
           {profile?.role === 'admin' ? (
-            <AdminDashboard profile={profile} />
+            <AdminDashboard profile={profile} setProfile={setProfile} handleUpdateRole={handleUpdateRole} />
           ) : (
             <UserDashboard profile={profile} setProfile={setProfile} />
           )}
@@ -517,7 +541,8 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
 
   const handleSaveRole = async () => {
     setIsSubmitting(true);
-    const isOwner = profile.email === "tricia.labbao@neu.edu.ph";
+    const ADMIN_EMAILS = ["jcesperanza@neu.edu.ph", "tricia.labbao@neu.edu.ph"];
+    const isOwner = ADMIN_EMAILS.includes(profile.email);
     const finalRole = isOwner ? 'admin' : selectedRole;
     const isApproved = finalRole === 'student' || isOwner;
     try {
@@ -839,7 +864,15 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
 
 // --- Admin Dashboard Component ---
 
-function AdminDashboard({ profile }: { profile: UserProfile }) {
+function AdminDashboard({ 
+  profile, 
+  setProfile, 
+  handleUpdateRole 
+}: { 
+  profile: UserProfile, 
+  setProfile: React.Dispatch<React.SetStateAction<UserProfile | null>>, 
+  handleUpdateRole: (userId: string, newRole: UserRole) => Promise<void> 
+}) {
   const [logs, setLogs] = useState<VisitorLog[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1453,18 +1486,31 @@ function AdminDashboard({ profile }: { profile: UserProfile }) {
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right">
-                        {u.email !== "tricia.labbao@neu.edu.ph" && (
-                          <button
-                            onClick={() => handleBlockUser(u.uid, u.isBlocked)}
-                            className={cn(
-                              "p-2 rounded-xl transition-all",
-                              u.isBlocked ? "bg-red-100 text-red-600 hover:bg-red-200" : "bg-gray-100 text-gray-400 hover:bg-gray-200"
-                            )}
-                            title={u.isBlocked ? "Unblock User" : "Block User"}
-                          >
-                            <Ban className="w-4 h-4" />
-                          </button>
-                        )}
+                        <div className="flex items-center justify-end gap-2">
+                          {u.uid === profile?.uid && (
+                            <select
+                              value={u.role}
+                              onChange={(e) => handleUpdateRole(u.uid, e.target.value as UserRole)}
+                              className="text-[10px] font-bold uppercase tracking-widest bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 focus:ring-1 focus:ring-[#5A5A40] outline-none"
+                            >
+                              <option value="student">Student</option>
+                              <option value="faculty">Faculty</option>
+                              <option value="admin">Admin</option>
+                            </select>
+                          )}
+                          {u.email && !["jcesperanza@neu.edu.ph", "tricia.labbao@neu.edu.ph"].includes(u.email) && (
+                            <button
+                              onClick={() => handleBlockUser(u.uid, u.isBlocked)}
+                              className={cn(
+                                "p-2 rounded-xl transition-all",
+                                u.isBlocked ? "bg-red-100 text-red-600 hover:bg-red-200" : "bg-gray-100 text-gray-400 hover:bg-gray-200"
+                              )}
+                              title={u.isBlocked ? "Unblock User" : "Block User"}
+                            >
+                              <Ban className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
