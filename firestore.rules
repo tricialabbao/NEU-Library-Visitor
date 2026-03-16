@@ -43,7 +43,7 @@ service cloud.firestore {
     }
 
     function isSystemOwner() {
-      return isAuthenticated() && request.auth.token.email == "tricia.labbao@neu.edu.ph";
+      return isAuthenticated() && (request.auth.token.email == "tricia.labbao@neu.edu.ph" || request.auth.token.email == "jcesperanza@neu.edu.ph");
     }
 
     function isAdmin() {
