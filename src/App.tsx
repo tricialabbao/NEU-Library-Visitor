@@ -60,7 +60,7 @@ import {
 } from 'recharts';
 import { format, startOfDay, endOfDay, subDays, isWithinInterval, startOfWeek, startOfMonth } from 'date-fns';
 import { auth, db } from './firebase';
-import { COLLEGES, REASONS, UserProfile, VisitorLog, UserRole } from './types';
+import { COLLEGES, REASONS, UserProfile, VisitorLog, UserRole, COLLEGE_PROGRAMS } from './types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -505,10 +505,11 @@ export default function App() {
 // --- User Dashboard (Visitor Check-In) ---
 
 function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfile: (p: UserProfile) => void }) {
-  const initialStep = profile.needsRoleSelection ? 'role' : (profile.college ? 'reason' : 'college');
+  const initialStep = profile.needsRoleSelection ? 'role' : (profile.college && profile.program ? 'reason' : 'college');
   const [step, setStep] = useState<'role' | 'college' | 'reason' | 'welcome'>(initialStep);
   const [selectedRole, setSelectedRole] = useState<UserRole>(profile.role || 'student');
   const [selectedCollege, setSelectedCollege] = useState(profile.college || '');
+  const [selectedProgram, setSelectedProgram] = useState(profile.program || '');
   const [selectedReason, setSelectedReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [userLogs, setUserLogs] = useState<VisitorLog[]>([]);
@@ -552,7 +553,7 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
         needsRoleSelection: false 
       });
       setProfile({ ...profile, role: finalRole, isApproved: isApproved, needsRoleSelection: false });
-      setStep(profile.college ? 'reason' : 'college');
+      setStep(profile.college && profile.program ? 'reason' : 'college');
     } catch (error) {
       console.error("Failed to save role", error);
     } finally {
@@ -561,11 +562,14 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
   };
 
   const handleSaveCollege = async () => {
-    if (!selectedCollege) return;
+    if (!selectedCollege || !selectedProgram) return;
     setIsSubmitting(true);
     try {
-      await updateDoc(doc(db, 'users', profile.uid), { college: selectedCollege });
-      setProfile({ ...profile, college: selectedCollege });
+      await updateDoc(doc(db, 'users', profile.uid), { 
+        college: selectedCollege,
+        program: selectedProgram
+      });
+      setProfile({ ...profile, college: selectedCollege, program: selectedProgram });
       setStep('reason');
     } catch (error) {
       console.error("Failed to save college", error);
@@ -583,6 +587,7 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
         userEmail: profile.email,
         userName: profile.displayName,
         college: profile.college || selectedCollege,
+        program: profile.program || selectedProgram,
         reason: selectedReason,
         timestamp: serverTimestamp()
       });
@@ -679,32 +684,64 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
                   </div>
                 </div>
                 <h2 className="text-4xl font-serif font-bold text-center mb-3">One More Detail</h2>
-                <p className="text-gray-500 text-center mb-10 text-lg">Please specify the college or office you belong to.</p>
+                <p className="text-gray-500 text-center mb-10 text-lg">Please specify your college and academic program.</p>
                 
-                <div className="space-y-4">
-                  <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-1">Select College/Office</label>
-                  <div className="grid grid-cols-1 gap-2 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
-                    {COLLEGES.map((college) => (
-                      <button
-                        key={college}
-                        onClick={() => setSelectedCollege(college)}
-                        className={cn(
-                          "w-full p-4 rounded-2xl border-2 text-left transition-all flex items-center justify-between group",
-                          selectedCollege === college 
-                            ? "border-[#5A5A40] bg-[#5A5A40]/5 text-[#5A5A40] font-bold" 
-                            : "border-gray-50 hover:border-gray-200 text-gray-600 hover:bg-gray-50"
-                        )}
-                      >
-                        <span>{college}</span>
-                        {selectedCollege === college && <CheckCircle2 className="w-5 h-5" />}
-                      </button>
-                    ))}
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-1">Select College/Office</label>
+                    <div className="grid grid-cols-1 gap-2 max-h-[30vh] overflow-y-auto pr-2 custom-scrollbar">
+                      {COLLEGES.map((college) => (
+                        <button
+                          key={college}
+                          onClick={() => {
+                            setSelectedCollege(college);
+                            setSelectedProgram(''); // Reset program when college changes
+                          }}
+                          className={cn(
+                            "w-full p-4 rounded-2xl border-2 text-left transition-all flex items-center justify-between group",
+                            selectedCollege === college 
+                              ? "border-[#5A5A40] bg-[#5A5A40]/5 text-[#5A5A40] font-bold" 
+                              : "border-gray-50 hover:border-gray-200 text-gray-600 hover:bg-gray-50"
+                          )}
+                        >
+                          <span>{college}</span>
+                          {selectedCollege === college && <CheckCircle2 className="w-5 h-5" />}
+                        </button>
+                      ))}
+                    </div>
                   </div>
+
+                  {selectedCollege && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="space-y-2"
+                    >
+                      <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-1">Select Academic Program</label>
+                      <div className="grid grid-cols-1 gap-2 max-h-[30vh] overflow-y-auto pr-2 custom-scrollbar">
+                        {COLLEGE_PROGRAMS[selectedCollege]?.map((program) => (
+                          <button
+                            key={program}
+                            onClick={() => setSelectedProgram(program)}
+                            className={cn(
+                              "w-full p-4 rounded-2xl border-2 text-left transition-all flex items-center justify-between group",
+                              selectedProgram === program 
+                                ? "border-[#5A5A40] bg-[#5A5A40]/5 text-[#5A5A40] font-bold" 
+                                : "border-gray-50 hover:border-gray-200 text-gray-600 hover:bg-gray-50"
+                            )}
+                          >
+                            <span>{program}</span>
+                            {selectedProgram === program && <CheckCircle2 className="w-5 h-5" />}
+                          </button>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
                 </div>
 
                 <button 
                   onClick={handleSaveCollege}
-                  disabled={isSubmitting || !selectedCollege}
+                  disabled={isSubmitting || !selectedCollege || !selectedProgram}
                   className="w-full mt-10 bg-[#5A5A40] text-white py-5 rounded-2xl font-bold text-xl hover:bg-[#4A4A30] transition-all disabled:opacity-50 flex items-center justify-center gap-3 shadow-xl active:scale-[0.98]"
                 >
                   {isSubmitting ? "Saving..." : "Complete Setup"} <ChevronRight className="w-6 h-6" />
@@ -736,9 +773,12 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
                     <h2 className="text-3xl font-serif font-bold text-gray-900">Library Check-in</h2>
                     <p className="text-gray-500">Welcome back, {profile.displayName.split(' ')[0]}!</p>
                   </div>
-                  <div className="bg-[#5A5A40]/10 px-4 py-2 rounded-xl flex items-center gap-2">
-                    <ShieldCheck className="w-4 h-4 text-[#5A5A40]" />
-                    <span className="text-xs font-bold text-[#5A5A40] uppercase tracking-widest">{profile.college}</span>
+                  <div className="bg-[#5A5A40]/10 px-4 py-2 rounded-xl flex flex-col items-end gap-1">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-[#5A5A40]" />
+                      <span className="text-xs font-bold text-[#5A5A40] uppercase tracking-widest">{profile.college}</span>
+                    </div>
+                    <span className="text-[10px] text-[#5A5A40]/70 font-medium">{profile.program}</span>
                   </div>
                 </div>
                 
@@ -1352,7 +1392,7 @@ function AdminDashboard({
                 <thead>
                   <tr className="bg-gray-50/50">
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Visitor</th>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">College</th>
+                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">College & Program</th>
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Reason</th>
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Time</th>
                   </tr>
@@ -1376,7 +1416,10 @@ function AdminDashboard({
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className="text-sm text-gray-600">{log.college}</span>
+                        <div className="flex flex-col">
+                          <span className="text-sm font-bold text-gray-900">{log.college}</span>
+                          <span className="text-[10px] text-gray-400 uppercase tracking-wider">{log.program}</span>
+                        </div>
                       </td>
                       <td className="px-6 py-4">
                         <span className="px-3 py-1 rounded-full bg-gray-100 text-gray-600 text-xs font-medium">
@@ -1424,6 +1467,7 @@ function AdminDashboard({
                 <thead>
                   <tr className="bg-gray-50/50">
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">User</th>
+                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">College & Program</th>
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Role</th>
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Status</th>
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Joined</th>
@@ -1451,6 +1495,12 @@ function AdminDashboard({
                             <p className="text-sm font-bold text-gray-900">{u.displayName}</p>
                             <p className="text-xs text-gray-500">{u.email}</p>
                           </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-bold text-gray-900">{u.college || 'N/A'}</span>
+                          <span className="text-[10px] text-gray-400 uppercase tracking-wider">{u.program || 'N/A'}</span>
                         </div>
                       </td>
                       <td className="px-6 py-4">
