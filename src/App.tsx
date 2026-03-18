@@ -38,12 +38,20 @@ import {
   Users,
   Calendar,
   ChevronRight,
+  ChevronDown,
   AlertCircle,
   Download,
   Maximize,
   X,
   Camera,
-  Trash2
+  Trash2,
+  BookOpen,
+  Monitor,
+  GraduationCap,
+  Printer,
+  Landmark,
+  Wifi,
+  MoreHorizontal
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -72,6 +80,103 @@ function cn(...inputs: ClassValue[]) {
 const NEU_LOGO = "https://lh3.googleusercontent.com/d/1-OgYjR5nlcREgMRKNUSk1kugK4quk9Ko";
 const BG_IMAGE = "https://lh3.googleusercontent.com/d/1-TI8ZC44tYbIWPiODuX6WyvviYOdP7Rq";
 // --- Components ---
+
+const CustomSelect = ({ 
+  value, 
+  onChange, 
+  options, 
+  placeholder,
+  disabled = false
+}: { 
+  value: string; 
+  onChange: (val: string) => void; 
+  options: string[]; 
+  placeholder: string;
+  disabled?: boolean;
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  return (
+    <div className={cn("relative", disabled && "opacity-50 cursor-not-allowed")} ref={containerRef}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setIsOpen(!isOpen)}
+        className={cn(
+          "w-full p-6 pr-12 rounded-2xl border border-gray-100 transition-all flex items-center justify-between text-left outline-none",
+          isOpen ? "bg-white shadow-lg border-gray-200" : "bg-[#F8F9FA] hover:bg-gray-100",
+          !value ? "text-[#8E8E8E]" : "text-gray-700",
+          disabled && "pointer-events-none"
+        )}
+      >
+        <span className="truncate text-[12px] font-bold uppercase tracking-[0.15em]">
+          {value || placeholder}
+        </span>
+        <ChevronDown className={cn("w-5 h-5 transition-transform duration-300 text-[#8E8E8E]", isOpen && "rotate-180 text-[#5A5A40]")} />
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 4, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 4, scale: 0.98 }}
+            className="absolute z-50 left-0 right-0 mt-2 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden max-h-[250px] overflow-y-auto custom-scrollbar"
+          >
+            <div className="p-2">
+              <button
+                type="button"
+                onClick={() => {
+                  onChange('');
+                  setIsOpen(false);
+                }}
+                className={cn(
+                  "w-full px-4 py-4 rounded-xl text-left text-[11px] font-bold uppercase tracking-widest transition-all flex items-center justify-between group",
+                  value === '' 
+                    ? "bg-[#5A5A40] text-white" 
+                    : "text-gray-400 hover:bg-gray-50 hover:text-gray-900"
+                )}
+              >
+                <span>{placeholder}</span>
+                {value === '' && <CheckCircle2 className="w-4 h-4" />}
+              </button>
+              {options.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => {
+                    onChange(option);
+                    setIsOpen(false);
+                  }}
+                  className={cn(
+                    "w-full px-4 py-4 rounded-xl text-left text-[11px] font-bold uppercase tracking-widest transition-all flex items-center justify-between group",
+                    value === option 
+                      ? "bg-[#5A5A40] text-white" 
+                      : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"
+                  )}
+                >
+                  <span>{option}</span>
+                  {value === option && <CheckCircle2 className="w-4 h-4" />}
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
 
 const LoadingScreen = () => (
   <div 
@@ -502,6 +607,18 @@ export default function App() {
   );
 }
 
+const REASON_ICONS: Record<string, any> = {
+  "Reading": BookOpen,
+  "Research": Search,
+  "Use of Computer": Monitor,
+  "Studying": GraduationCap,
+  "Borrowing/Returning books": Library,
+  "Printing or photocopying documents": Printer,
+  "Visiting NEU Museum": Landmark,
+  "Using free Wi-Fi": Wifi,
+  "Others": MoreHorizontal
+};
+
 // --- User Dashboard (Visitor Check-In) ---
 
 function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfile: (p: UserProfile) => void }) {
@@ -683,66 +800,34 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
                     <img src={NEU_LOGO} alt="NEU Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
                   </div>
                 </div>
-                <h2 className="text-4xl font-serif font-bold text-center mb-3">One More Detail</h2>
-                <p className="text-gray-500 text-center mb-10 text-lg">Please specify your college and academic program.</p>
+                <p className="text-gray-600 text-center mb-10 text-xl font-bold" style={{ fontFamily: 'Cambria, Georgia, serif' }}>
+                  Please specify your college and academic program.
+                </p>
                 
                 <div className="space-y-6">
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-1">Select College/Office</label>
-                    <div className="grid grid-cols-1 gap-2 max-h-[30vh] overflow-y-auto pr-2 custom-scrollbar">
-                      {COLLEGES.map((college) => (
-                        <button
-                          key={college}
-                          onClick={() => {
-                            setSelectedCollege(college);
-                            setSelectedProgram(''); // Reset program when college changes
-                          }}
-                          className={cn(
-                            "w-full p-4 rounded-2xl border-2 text-left transition-all flex items-center justify-between group",
-                            selectedCollege === college 
-                              ? "border-[#5A5A40] bg-[#5A5A40]/5 text-[#5A5A40] font-bold" 
-                              : "border-gray-50 hover:border-gray-200 text-gray-600 hover:bg-gray-50"
-                          )}
-                        >
-                          <span>{college}</span>
-                          {selectedCollege === college && <CheckCircle2 className="w-5 h-5" />}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  <CustomSelect 
+                    placeholder="CHOOSE COLLEGE DEPARTMENT"
+                    value={selectedCollege}
+                    options={COLLEGES}
+                    onChange={(val) => {
+                      setSelectedCollege(val);
+                      setSelectedProgram('');
+                    }}
+                  />
 
-                  {selectedCollege && (
-                    <motion.div 
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="space-y-2"
-                    >
-                      <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-1">Select Academic Program</label>
-                      <div className="grid grid-cols-1 gap-2 max-h-[30vh] overflow-y-auto pr-2 custom-scrollbar">
-                        {COLLEGE_PROGRAMS[selectedCollege]?.map((program) => (
-                          <button
-                            key={program}
-                            onClick={() => setSelectedProgram(program)}
-                            className={cn(
-                              "w-full p-4 rounded-2xl border-2 text-left transition-all flex items-center justify-between group",
-                              selectedProgram === program 
-                                ? "border-[#5A5A40] bg-[#5A5A40]/5 text-[#5A5A40] font-bold" 
-                                : "border-gray-50 hover:border-gray-200 text-gray-600 hover:bg-gray-50"
-                            )}
-                          >
-                            <span>{program}</span>
-                            {selectedProgram === program && <CheckCircle2 className="w-5 h-5" />}
-                          </button>
-                        ))}
-                      </div>
-                    </motion.div>
-                  )}
+                  <CustomSelect 
+                    placeholder="CHOOSE PROGRAM"
+                    value={selectedProgram}
+                    options={selectedCollege ? (COLLEGE_PROGRAMS[selectedCollege] || []) : []}
+                    onChange={(val) => setSelectedProgram(val)}
+                    disabled={!selectedCollege}
+                  />
                 </div>
 
                 <button 
                   onClick={handleSaveCollege}
                   disabled={isSubmitting || !selectedCollege || !selectedProgram}
-                  className="w-full mt-10 bg-[#5A5A40] text-white py-5 rounded-2xl font-bold text-xl hover:bg-[#4A4A30] transition-all disabled:opacity-50 flex items-center justify-center gap-3 shadow-xl active:scale-[0.98]"
+                  className="w-full mt-10 bg-[#A3A393] text-white py-5 rounded-2xl font-bold text-xl hover:bg-[#939383] transition-all disabled:opacity-50 flex items-center justify-center gap-3 shadow-lg active:scale-[0.98]"
                 >
                   {isSubmitting ? "Saving..." : "Complete Setup"} <ChevronRight className="w-6 h-6" />
                 </button>
@@ -785,26 +870,37 @@ function UserDashboard({ profile, setProfile }: { profile: UserProfile, setProfi
                 <p className="text-gray-500 mb-6 font-medium">What is your primary reason for visiting today?</p>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {REASONS.map(reason => (
-                    <button
-                      key={reason}
-                      onClick={() => setSelectedReason(reason)}
-                      className={cn(
-                        "p-6 rounded-2xl border-2 text-left transition-all flex items-center justify-between group",
-                        selectedReason === reason 
-                          ? "border-[#5A5A40] bg-[#5A5A40]/5 text-[#5A5A40]" 
-                          : "border-gray-100 hover:border-gray-200 text-gray-600"
-                      )}
-                    >
-                      <span className="font-medium">{reason}</span>
-                      <div className={cn(
-                        "w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all",
-                        selectedReason === reason ? "border-[#5A5A40] bg-[#5A5A40]" : "border-gray-200"
-                      )}>
-                        {selectedReason === reason && <CheckCircle2 className="w-4 h-4 text-white" />}
-                      </div>
-                    </button>
-                  ))}
+                  {REASONS.map(reason => {
+                    const Icon = REASON_ICONS[reason] || MoreHorizontal;
+                    return (
+                      <button
+                        key={reason}
+                        onClick={() => setSelectedReason(reason)}
+                        className={cn(
+                          "p-6 rounded-2xl border-2 text-left transition-all flex items-center gap-4 group",
+                          selectedReason === reason 
+                            ? "border-[#5A5A40] bg-[#5A5A40]/5 text-[#5A5A40]" 
+                            : "border-gray-100 hover:border-gray-200 text-gray-600"
+                        )}
+                      >
+                        <div className={cn(
+                          "w-12 h-12 rounded-xl flex items-center justify-center transition-all",
+                          selectedReason === reason ? "bg-[#5A5A40] text-white" : "bg-gray-50 text-gray-400 group-hover:bg-gray-100 group-hover:text-gray-600"
+                        )}>
+                          <Icon className="w-6 h-6" />
+                        </div>
+                        <div className="flex-1">
+                          <span className="font-bold block text-sm leading-tight">{reason}</span>
+                        </div>
+                        <div className={cn(
+                          "w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all shrink-0",
+                          selectedReason === reason ? "border-[#5A5A40] bg-[#5A5A40]" : "border-gray-200"
+                        )}>
+                          {selectedReason === reason && <CheckCircle2 className="w-4 h-4 text-white" />}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
 
                 <button 

@@ -119,5 +119,7 @@ export const REASONS = [
   "Studying",
   "Borrowing/Returning books",
   "Printing or photocopying documents",
+  "Visiting NEU Museum",
+  "Using free Wi-Fi",
   "Others"
 ];
